@@ -2,7 +2,9 @@
 
 **End-to-end encrypted, peer-to-peer file transfer as an installable PWA.**
 
-> **🚀 Deploy your own**
+> **🚀 Live demo:** [securesend.pages.dev](https://securesend.pages.dev)
+>
+> **Deploy your own:**
 > - App: Cloudflare Pages (e.g. `https://<your-app>.pages.dev`)
 > - Signaling: Cloudflare Worker (e.g. `https://securesend-signal.<your-subdomain>.workers.dev`)
 >
