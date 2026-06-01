@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1020" />
+    <meta
+      name="description"
+      content="End-to-end encrypted, peer-to-peer file transfer. Files never touch a server."
+    />
+    <!--
+      Content Security Policy (defense-in-depth; production is locked down by
+      public/_headers, which the browser enforces as the INTERSECTION with this
+      tag). This meta tag additionally allows localhost so `npm run dev` works;
+      in production the _headers CSP (worker origin only) wins via intersection.
+      - default-src 'self' keeps the origin locked down.
+      - connect-src: the signaling Worker (HTTPS for /api/*, WSS for the socket)
+        plus localhost for dev. No open ws:/wss:/https: wildcards in production.
+      - WebRTC media/data is negotiated by the browser and not restricted by CSP.
+      Note: 'wasm-unsafe-eval' is omitted; we use Web Crypto (no wasm).
+
+      CHANGE ME: replace `securesend-signal.example.workers.dev` (here AND in
+      public/_headers) with your deployed signaling Worker's origin.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.example.workers.dev wss://securesend-signal.example.workers.dev ws://localhost:8787 http://localhost:8787; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    />
+    <title>SecureSend — Encrypted P2P File Transfer</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>SecureSend requires JavaScript and a modern browser with WebRTC and Web Crypto support.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

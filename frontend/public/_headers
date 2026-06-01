@@ -1,0 +1,14 @@
+# Cloudflare Pages custom headers — security hardening for the app shell.
+# Note: file data is never served from here; this only protects the PWA shell.
+#
+# CHANGE ME: replace `securesend-signal.example.workers.dev` in the
+# Content-Security-Policy connect-src below with your deployed signaling
+# Worker's origin (HTTPS + WSS). Keep it in sync with frontend/index.html.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.example.workers.dev wss://securesend-signal.example.workers.dev; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'

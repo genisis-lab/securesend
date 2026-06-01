@@ -1,0 +1,21 @@
+{
+  "name": "securesend-signal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker + Durable Object signaling server for SecureSend. Relays WebRTC/ECDH handshake messages only — never sees file contents or keys.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240605.0",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.5",
+    "wrangler": "^3.60.0"
+  }
+}

@@ -1,0 +1,74 @@
+name = "securesend-signal"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------------------
+# Durable Object binding.
+# Each SignalingRoom instance is one ephemeral transfer room (max 2 peers).
+# Durable Objects give us a single coordination point per room so the two
+# peers reliably reach the same WebSocket hub.
+# ---------------------------------------------------------------------------
+[[durable_objects.bindings]]
+name = "SIGNALING_ROOM"
+class_name = "SignalingRoom"
+
+# Per-IP token-bucket rate limiter protecting POST /api/rooms from abuse.
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignalingRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RateLimiter"]
+
+# ---------------------------------------------------------------------------
+# R2 bucket for OPTIONAL store-and-forward transfers. Stores ONLY client-side
+# encrypted ciphertext (AES-256-GCM); the server never receives the key, which
+# lives in the invite link fragment. Objects auto-expire (see STORE_TTL_SECONDS
+# and the lifecycle rule configured on the bucket).
+#
+# Create the bucket once:  npx wrangler r2 bucket create securesend-blobs
+# ---------------------------------------------------------------------------
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "securesend-blobs"
+
+# ---------------------------------------------------------------------------
+# TURN (NAT traversal) — OPTIONAL but strongly recommended for reliability.
+# Peers behind symmetric / carrier-grade NAT cannot connect with STUN alone.
+# TURN relays only ENCRYPTED bytes, so end-to-end encryption is preserved.
+#
+# Preferred: Cloudflare Calls TURN (short-lived creds minted per request).
+#   Create a TURN key in the Cloudflare dashboard (Calls), then set as secrets:
+#     npx wrangler secret put TURN_TOKEN_ID
+#     npx wrangler secret put TURN_API_TOKEN
+#
+# Alternative: a static TURN server (e.g. coturn, Twilio, Metered):
+#     npx wrangler secret put TURN_URLS         # e.g. turn:turn.example.com:3478
+#     npx wrangler secret put TURN_USERNAME
+#     npx wrangler secret put TURN_CREDENTIAL
+#
+# STUN can be overridden via STUN_URLS (comma-separated). Defaults to Google.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# CORS / allowed origins for the signaling endpoint.
+# Set this to YOUR deployed Pages origin in production to lock down who may
+# open rooms. Comma separated. "*" allows any origin (dev only).
+# ---------------------------------------------------------------------------
+[vars]
+ALLOWED_ORIGINS = "https://your-app.pages.dev"   # CHANGE ME to your Pages origin(s)
+ROOM_TTL_SECONDS = "600"        # invite codes expire after 10 minutes
+RECONNECT_GRACE_SECONDS = "15"  # short grace period for a refreshing peer
+STORE_TTL_SECONDS = "86400"     # store-and-forward blobs expire after 24h
+# Optional: per-IP store byte budget (defaults: 2 GiB per 24h if unset).
+# STORE_BYTE_CAP = "2147483648"       # bytes
+# STORE_BYTE_WINDOW_MS = "86400000"   # window in ms
+
+[observability]
+enabled = true
