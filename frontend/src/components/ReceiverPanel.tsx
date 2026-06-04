@@ -3,6 +3,7 @@ import { SessionState } from "../lib/session";
 import { TransferProgressView } from "./TransferProgress";
 import { ReceivedFileItem } from "./ReceivedFileItem";
 import { ConnectionBadge } from "./ConnectionBadge";
+import { SafetyCheck } from "./SafetyCheck";
 
 interface Props {
   state: SessionState | null;
@@ -19,6 +20,10 @@ interface Props {
   onSkipLiveSave?: () => void;
   /** Called when the recipient confirms a save (fires deferred burn-after-download). */
   onSaved?: () => void;
+  /** Confirm the displayed safety code matches the sender's. */
+  onConfirmSafety: () => void;
+  /** Report that the safety codes don't match (aborts the transfer). */
+  onRejectSafety: () => void;
   onReset: () => void;
 }
 
@@ -35,6 +40,8 @@ export function ReceiverPanel({
   onChooseLiveSave,
   onSkipLiveSave,
   onSaved,
+  onConfirmSafety,
+  onRejectSafety,
   onReset,
 }: Props) {
   const [passphrase, setPassphrase] = useState("");
@@ -63,6 +70,19 @@ export function ReceiverPanel({
     setJoined(true);
     join(requiresPassphrase ? passphrase : undefined);
   };
+
+  // ---- Safety-code verification (machine-in-the-middle defense) ----
+  if (phase === "verifying") {
+    return (
+      <SafetyCheck
+        code={state?.fingerprint ?? null}
+        peerLabel="the sender"
+        confirmLabel="Codes match — receive"
+        onConfirm={onConfirmSafety}
+        onReject={onRejectSafety}
+      />
+    );
+  }
 
   // ---- Ready to save (streaming-to-disk; needs a user gesture) ----
   if (phase === "ready-to-save") {

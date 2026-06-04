@@ -4,6 +4,7 @@ import { FileDropzone } from "./FileDropzone";
 import { InviteLink } from "./InviteLink";
 import { TransferProgressView } from "./TransferProgress";
 import { ConnectionBadge } from "./ConnectionBadge";
+import { SafetyCheck } from "./SafetyCheck";
 import { formatBytes } from "../lib/format";
 import { textToFile, LARGE_FILE_WARN_BYTES } from "../lib/download";
 
@@ -18,6 +19,10 @@ interface Props {
   ) => void;
   onCancel: () => void;
   onReset: () => void;
+  /** Confirm the displayed safety code matches the recipient's. */
+  onConfirmSafety: () => void;
+  /** Report that the safety codes don't match (aborts the transfer). */
+  onRejectSafety: () => void;
   /** Pre-filled text (e.g. from the OS share sheet). Opens the Text tab. */
   initialText?: string | null;
   /** Pre-filled files (e.g. shared into the app). Opens the Files tab. */
@@ -42,7 +47,7 @@ const DEFAULT_EXPIRY_SECONDS = 10 * 60;
 type Mode = "files" | "text";
 
 /** The "send" flow: pick files/text -> create invite -> wait -> transfer. */
-export function SenderPanel({ state, onStart, onCancel, onReset, initialText, initialFiles }: Props) {
+export function SenderPanel({ state, onStart, onCancel, onReset, onConfirmSafety, onRejectSafety, initialText, initialFiles }: Props) {
   const [mode, setMode] = useState<Mode>(initialText ? "text" : "files");
   const [files, setFiles] = useState<File[]>(initialFiles ?? []);
   const [text, setText] = useState(initialText ?? "");
@@ -144,6 +149,19 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
           Send something else
         </button>
       </div>
+    );
+  }
+
+  // ---- Safety-code verification (machine-in-the-middle defense) ----
+  if (phase === "verifying") {
+    return (
+      <SafetyCheck
+        code={state?.fingerprint ?? null}
+        peerLabel="your recipient"
+        confirmLabel="Codes match — send"
+        onConfirm={onConfirmSafety}
+        onReject={onRejectSafety}
+      />
     );
   }
 
