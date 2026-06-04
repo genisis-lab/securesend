@@ -65,14 +65,6 @@ export function useTransferSession() {
     sessionRef.current?.confirmSaved();
   }, []);
 
-  const confirmSafetyCode = useCallback(() => {
-    sessionRef.current?.confirmSafetyCode();
-  }, []);
-
-  const rejectSafetyCode = useCallback(() => {
-    sessionRef.current?.rejectSafetyCode();
-  }, []);
-
   const cancel = useCallback(() => {
     sessionRef.current?.cancel();
   }, []);
@@ -100,8 +92,6 @@ export function useTransferSession() {
     chooseLiveSaveLocation,
     skipLiveSaveLocation,
     confirmSaved,
-    confirmSafetyCode,
-    rejectSafetyCode,
     cancel,
     reset,
   };

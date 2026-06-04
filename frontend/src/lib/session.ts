@@ -56,7 +56,6 @@ export type SessionPhase =
   | "peer-connected"
   | "key-exchange"
   | "connecting-webrtc"
-  | "verifying"
   | "transferring"
   | "uploading"
   | "stored"
@@ -179,20 +178,6 @@ export class TransferSession {
   private receiver: FileReceiver | null = null;
   private peerPublicRaw: Uint8Array | null = null;
   private startedHandshake = false;
-  /**
-   * Set once the LOCAL user confirms the displayed safety code matches their
-   * peer's (machine-in-the-middle defense). The live transfer is gated on this:
-   * we send no file bytes (sender) and create no FileReceiver (receiver) until
-   * it's true. Store-and-forward never sets it (no live key exchange).
-   */
-  private sasConfirmed = false;
-  /**
-   * Live-mode receive: frames/control that arrived over the DataChannel before
-   * the user confirmed the safety code (so before the FileReceiver existed).
-   * Replayed in arrival order once the receiver is created, so an early
-   * manifest from a sender who confirmed first is never dropped.
-   */
-  private pendingReceiverMessages: Array<ArrayBuffer | string> = [];
 
   subscribe(listener: SessionListener): () => void {
     this.listeners.add(listener);
@@ -565,10 +550,6 @@ export class TransferSession {
     this.aesKey = null;
     this.peerPublicRaw = null;
     this.startedHandshake = false;
-    // A fresh handshake must re-ask for safety-code confirmation, and any
-    // messages buffered for the previous attempt are now stale.
-    this.sasConfirmed = false;
-    this.pendingReceiverMessages = [];
     // Keep our keypair + salt + linkSecret; they're still valid for the room.
     this.patch({ phase: "waiting-for-peer", progress: null, connectionType: null });
   }
@@ -595,18 +576,7 @@ export class TransferSession {
       onMessage: (data) => {
         // Binary frames + metadata/complete go to the receiver; ack/nack
         // control strings go to the sender. Route to whichever side exists.
-        if (this.receiver) {
-          this.receiver.handleMessage(data);
-        } else if (this.direction === "receive") {
-          // The FileReceiver doesn't exist yet because the user is still
-          // confirming the safety code. Buffer messages (e.g. an early
-          // manifest from a sender who already confirmed) and replay them in
-          // order once the receiver is created. Copy ArrayBuffers since the
-          // backing memory may be reused after this callback returns.
-          this.pendingReceiverMessages.push(
-            typeof data === "string" ? data : data.slice(0),
-          );
-        }
+        this.receiver?.handleMessage(data);
         if (this.sender && typeof data === "string") {
           try {
             this.sender.handleControl(JSON.parse(data));
@@ -695,12 +665,9 @@ export class TransferSession {
         /* fingerprint is a UX aid; never block the transfer on it */
       }
 
-      // Gate the transfer on an explicit human check that the safety code
-      // matches on BOTH screens (defeats a signaling-relay MITM, which would
-      // make the two screens show DIFFERENT codes). We do NOT send file bytes
-      // (sender) or create the FileReceiver until confirmSafetyCode() runs.
-      // The DataChannel may open meanwhile; maybeStartTransfer stays gated.
-      this.patch({ phase: "verifying" });
+      this.patch({ phase: "connecting-webrtc" });
+      // Channel open handler kicks off the actual transfer.
+      this.maybeStartTransfer();
     } catch (err) {
       this.fail(err);
     }
@@ -710,15 +677,9 @@ export class TransferSession {
     this.maybeStartTransfer();
   }
 
-  /**
-   * Start the transfer once the AES key + open channel exist AND the local user
-   * has confirmed the safety code. The SAS gate (`sasConfirmed`) is the MITM
-   * defense: no plaintext leaves the sender, and the receiver accepts nothing,
-   * until the user confirms the code matches their peer's.
-   */
+  /** Start the transfer once BOTH the AES key and the open channel exist. */
   private maybeStartTransfer(): void {
     if (!this.aesKey || !this.rtc) return;
-    if (!this.sasConfirmed) return; // wait for safety-code confirmation
     if (this.rtc.dataChannel?.readyState !== "open") return;
     if (this.sender || this.receiver) return; // already started
 
@@ -754,14 +715,6 @@ export class TransferSession {
         // (or skip to in-memory). Returns null => buffer in memory.
         openSink: (info) => this.requestLiveSink(info),
       });
-      // Replay anything the peer sent while we were confirming the safety code
-      // (e.g. the manifest from a sender who confirmed first), in arrival order.
-      const created = this.receiver;
-      if (this.pendingReceiverMessages.length > 0) {
-        const queued = this.pendingReceiverMessages;
-        this.pendingReceiverMessages = [];
-        for (const m of queued) created.handleMessage(m);
-      }
     }
   }
 
@@ -824,35 +777,6 @@ export class TransferSession {
     this.liveSinkInfo = null;
     this.patch({ phase: "transferring" });
     resolve(null);
-  }
-
-  /**
-   * The local user confirmed the displayed safety code matches their peer's.
-   * Releases the SAS gate and proceeds: the sender begins sending, the receiver
-   * begins accepting. No-op outside a live verification (e.g. store mode).
-   */
-  confirmSafetyCode(): void {
-    if (this.sasConfirmed) return;
-    this.sasConfirmed = true;
-    if (this.state.phase === "verifying") {
-      this.patch({ phase: "connecting-webrtc" });
-    }
-    this.maybeStartTransfer();
-  }
-
-  /**
-   * The local user reported the safety codes DON'T match. A mismatch is the
-   * signature of a machine-in-the-middle, so we abort without transferring and
-   * surface guidance to start over with a freshly shared link.
-   */
-  rejectSafetyCode(): void {
-    this.fail(
-      new Error(
-        "The safety codes didn't match, so the transfer was stopped. This can " +
-          "mean the connection is being intercepted. Ask the sender to create a " +
-          "new invite link and share it through a trusted channel.",
-      ),
-    );
   }
 
   /** Cancel an in-progress (or waiting) transfer and notify the peer. */
