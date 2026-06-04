@@ -1,7 +1,7 @@
 interface Props {
   /** The short authentication string (SAS) to compare with the peer. */
   code: string | null;
-  /** Label for the confirm button, e.g. "Codes match \u2014 send". */
+  /** Label for the confirm button, e.g. "Codes match — send". */
   confirmLabel: string;
   /** Who to compare with, e.g. "your recipient" or "the sender". */
   peerLabel: string;
@@ -26,10 +26,10 @@ export function SafetyCheck({
 }: Props) {
   return (
     <div className="card">
-      <div className="success-icon">\u{1F510}</div>
+      <div className="success-icon">🔐</div>
       <h2 className="card__title u-center">Check the safety code</h2>
       <p className="card__hint u-center">
-        Compare this code with {peerLabel} over a trusted channel \u2014 read it
+        Compare this code with {peerLabel} over a trusted channel — read it
         aloud on a call, for example. It must match <strong>exactly</strong> on
         both screens. Matching codes prove no one is intercepting your
         connection.
@@ -42,13 +42,13 @@ export function SafetyCheck({
         onClick={onConfirm}
         disabled={!code}
       >
-        \u2713 {confirmLabel}
+        ✓ {confirmLabel}
       </button>
       <button
         className="btn btn--ghost btn--block u-mt-10"
         onClick={onReject}
       >
-        They don't match \u2014 stop
+        They don't match — stop
       </button>
     </div>
   );
