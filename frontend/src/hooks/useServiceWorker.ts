@@ -13,13 +13,13 @@ export interface ServiceWorkerState {
 }
 
 /**
- * Wraps vite-plugin-pwa's `registerSW`.
+ * Wraps vite-plugin-pwa's `registerSW` so the UI can show a non-disruptive
+ * "Update available" toast and an "Offline ready" confirmation.
  *
- * Hotfix behavior: apply newly deployed app-shell updates immediately. This
- * avoids users being stuck on an old cached PWA shell after a Cloudflare Pages
- * deploy (for example, missing a newly-added receiver button). The update still
- * only happens when the browser discovers a new service worker; active transfer
- * data is never cached by the service worker.
+ * We intentionally use the plugin's `prompt` mode (set in vite.config.ts)
+ * instead of `autoUpdate`: auto-reloading the page to apply an update could
+ * interrupt an in-flight P2P transfer. Letting the user choose when to refresh
+ * keeps transfers safe.
  */
 export function useServiceWorker(): ServiceWorkerState {
   const [needRefresh, setNeedRefresh] = useState(false);
@@ -31,21 +31,15 @@ export function useServiceWorker(): ServiceWorkerState {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
       return;
     }
-
     const updateSW = registerSW({
-      immediate: true,
       onNeedRefresh() {
-        // Activate the waiting service worker and reload into the new app shell
-        // right away, so the UI a user sees matches the latest deployment.
         setNeedRefresh(true);
-        void updateSW(true);
       },
       onOfflineReady() {
         setOfflineReady(true);
       },
     });
-
-    // Stash the updater so the toast button can still call it if needed.
+    // Stash the updater so the button can call it (true = reload after activate).
     setUpdateFn(() => () => updateSW(true));
   }, []);
 

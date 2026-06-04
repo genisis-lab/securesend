@@ -45,18 +45,12 @@ export const LARGE_FILE_WARN_BYTES = 1.5 * 1024 * 1024 * 1024;
  * try/catch because some browsers throw on unsupported descriptors.
  */
 export function canShareFile(file: File): boolean {
-  return canShareFiles([file]);
-}
-
-/** Can this set of files be shared together via the native share sheet? */
-export function canShareFiles(files: File[]): boolean {
-  if (files.length === 0) return false;
   try {
     return (
       typeof navigator !== "undefined" &&
       typeof navigator.canShare === "function" &&
       typeof navigator.share === "function" &&
-      navigator.canShare({ files })
+      navigator.canShare({ files: [file] })
     );
   } catch {
     return false;
@@ -71,20 +65,11 @@ export type ShareResult = "shared" | "cancelled" | "unsupported" | "failed";
  * failure so callers can decide whether to fall back to a download.
  */
 export async function shareFile(file: File): Promise<ShareResult> {
-  return shareFiles([file], file.name);
-}
-
-/** Offer multiple files together through the native share sheet. */
-export async function shareFiles(files: File[], title = "SecureSend files"): Promise<ShareResult> {
-  if (
-    files.length === 0 ||
-    typeof navigator === "undefined" ||
-    typeof navigator.share !== "function"
-  ) {
+  if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
     return "unsupported";
   }
   try {
-    await navigator.share({ files, title });
+    await navigator.share({ files: [file], title: file.name });
     return "shared";
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -109,12 +94,4 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.removeChild(a);
   // Revoke after a delay so the download has time to start.
   setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-
-/** Download several files one-by-one using the universal anchor fallback. */
-export function downloadBlobs(files: File[]): void {
-  files.forEach((file, index) => {
-    // Small stagger helps mobile/desktop browsers register each download.
-    setTimeout(() => downloadBlob(file, file.name), index * 250);
-  });
 }
