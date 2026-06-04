@@ -40,7 +40,7 @@ export interface Env {
   /** Optional Cloudflare Calls TURN credentials (preferred). */
   TURN_TOKEN_ID?: string;
   TURN_API_TOKEN?: string;
-  /** Comma-separated STUN urls (defaults to Google STUN). */
+  /** Comma-separated STUN urls (defaults to Google). */
   STUN_URLS?: string;
 }
 
@@ -129,7 +129,7 @@ async function rateLimit(
     const id = env.RATE_LIMITER.idFromName(`${scope}:${clientKey(request)}`);
     const stub = env.RATE_LIMITER.get(id);
     const qs = opts ? `?cap=${opts.cap}&win=${opts.win}` : "";
-    const res = await stub.fetch(`https://rl/consume${qs}`);
+    const res = await stub.fetch("https://rl/consume" + qs);
     return (await res.json()) as RateLimitResult;
   } catch {
     // Fail open: never block legitimate users if the limiter errors.
@@ -160,7 +160,7 @@ async function chargeStoreBytes(
     const params = new URLSearchParams({ add: String(Math.max(0, Math.floor(size))) });
     if (Number.isFinite(cap) && cap > 0) params.set("cap", String(cap));
     if (Number.isFinite(win) && win > 0) params.set("win", String(win));
-    const res = await stub.fetch(`https://rl/bytes?${params.toString()}`);
+    const res = await stub.fetch("https://rl/bytes?" + params.toString());
     const data = (await res.json()) as { allowed: boolean };
     return data.allowed;
   } catch {
@@ -196,17 +196,18 @@ async function buildIceServers(env: Env): Promise<RTCIceServerLike[]> {
   // 1. Cloudflare Calls TURN: mint short-lived credentials.
   if (env.TURN_TOKEN_ID && env.TURN_API_TOKEN) {
     try {
-      const resp = await fetch(
-        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN_ID}/credentials/generate`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${env.TURN_API_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ ttl: 3600 }),
+      const turnUrl =
+        "https://rtc.live.cloudflare.com/v1/turn/keys/" +
+        env.TURN_TOKEN_ID +
+        "/credentials/generate";
+      const resp = await fetch(turnUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.TURN_API_TOKEN}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({ ttl: 3600 }),
+      });
       if (resp.ok) {
         const data = (await resp.json()) as {
           iceServers?: RTCIceServerLike | RTCIceServerLike[];
