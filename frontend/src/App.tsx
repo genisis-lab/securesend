@@ -46,7 +46,7 @@ function readRoute(): Route {
 
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute);
-  const { state, startSend, startReceive, startStoreReceive, downloadToDisk, chooseLiveSaveLocation, skipLiveSaveLocation, confirmSaved, cancel, reset } =
+  const { state, startSend, startReceive, startStoreReceive, downloadToDisk, chooseLiveSaveLocation, skipLiveSaveLocation, confirmSaved, confirmSafetyCode, rejectSafetyCode, cancel, reset } =
     useTransferSession();
 
   const sw = useServiceWorker();
@@ -189,6 +189,8 @@ export function App() {
             onStart={startSend}
             onCancel={cancel}
             onReset={goHome}
+            onConfirmSafety={confirmSafetyCode}
+            onRejectSafety={rejectSafetyCode}
             initialText={sharedText}
             initialFiles={sharedFiles}
           />
@@ -209,6 +211,8 @@ export function App() {
             onChooseLiveSave={chooseLiveSaveLocation}
             onSkipLiveSave={skipLiveSaveLocation}
             onSaved={confirmSaved}
+            onConfirmSafety={confirmSafetyCode}
+            onRejectSafety={rejectSafetyCode}
             onReset={goHome}
           />
         </>
