@@ -3,6 +3,15 @@ import { SessionState } from "../lib/session";
 import { TransferProgressView } from "./TransferProgress";
 import { ReceivedFileItem } from "./ReceivedFileItem";
 import { ConnectionBadge } from "./ConnectionBadge";
+import { ReceivedItem } from "../lib/transfer";
+import {
+  buildFile,
+  canShareFiles,
+  downloadBlobs,
+  isImage,
+  isVideo,
+  shareFiles,
+} from "../lib/download";
 
 interface Props {
   state: SessionState | null;
@@ -39,6 +48,7 @@ export function ReceiverPanel({
 }: Props) {
   const [passphrase, setPassphrase] = useState("");
   const [joined, setJoined] = useState(false);
+  const [saveAllHint, setSaveAllHint] = useState<string | null>(null);
 
   const phase = state?.phase ?? "idle";
   const statusText = useMemo(() => receiverStatus(phase), [phase]);
@@ -62,6 +72,43 @@ export function ReceiverPanel({
   const handleJoin = () => {
     setJoined(true);
     join(requiresPassphrase ? passphrase : undefined);
+  };
+
+  const receivedFiles = useMemo(() => buildReceivedFiles(received), [received]);
+  const canNativeShareAll = receivedFiles.length > 0 && canShareFiles(receivedFiles);
+  const allMedia =
+    receivedFiles.length > 0 &&
+    receivedFiles.every((file) => isImage(file.type) || isVideo(file.type));
+
+  const handleSaveAll = async () => {
+    if (receivedFiles.length === 0) return;
+    setSaveAllHint(null);
+
+    if (canNativeShareAll) {
+      const result = await shareFiles(receivedFiles, "SecureSend files");
+      if (result === "shared") {
+        setSaveAllHint(
+          allMedia
+            ? "Use the share sheet to save them to Photos or Files."
+            : "Use the share sheet to save or share the files.",
+        );
+        onSaved?.();
+        return;
+      }
+      if (result === "cancelled") {
+        setSaveAllHint("Save cancelled — your files are still available here.");
+        return;
+      }
+      // Unsupported/failed falls through to the universal download fallback.
+    }
+
+    downloadBlobs(receivedFiles);
+    setSaveAllHint(
+      receivedFiles.length === 1
+        ? "Saved to your downloads."
+        : "Started downloads for all files.",
+    );
+    onSaved?.();
   };
 
   // ---- Ready to save (streaming-to-disk; needs a user gesture) ----
@@ -130,13 +177,34 @@ export function ReceiverPanel({
         <h2 className="card__title u-center">
           {single ? "Received & decrypted" : `${received.length} items received`}
         </h2>
+        {!single && receivedFiles.length > 0 && (
+          <>
+            <button className="btn btn--block u-mt-14" onClick={handleSaveAll}>
+              {canNativeShareAll
+                ? allMedia
+                  ? "📸 Save all to Photos / Files"
+                  : "⬇ Save all"
+                : "⬇ Download all"}
+            </button>
+            <p className="card__hint u-mt-8 u-center">
+              {canNativeShareAll
+                ? "Opens your device share sheet so you can save everything together."
+                : "Your browser will download each file individually."}
+            </p>
+            {saveAllHint && (
+              <p className="card__hint u-mt-8 u-center">
+                {saveAllHint}
+              </p>
+            )}
+          </>
+        )}
         <div className="received-list">
           {received.map((item, i) => (
             <ReceivedFileItem
               key={`${item.meta.name}:${i}`}
               item={item}
               autoSave={single}
-              onSaved={onSaved}
+              onSaved={single ? onSaved : undefined}
             />
           ))}
         </div>
@@ -245,6 +313,14 @@ export function ReceiverPanel({
         )
       )}
     </div>
+  );
+}
+
+function buildReceivedFiles(received: ReceivedItem[]): File[] {
+  return received.flatMap((item) =>
+    item.blob
+      ? [buildFile(item.blob, item.meta.name, item.meta.mime)]
+      : [],
   );
 }
 
