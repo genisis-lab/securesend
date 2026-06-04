@@ -27,7 +27,6 @@ export interface Env {
   BLOBS?: R2Bucket;
   ALLOWED_ORIGINS: string;
   ROOM_TTL_SECONDS: string;
-  RECONNECT_GRACE_SECONDS: string;
   /** Store-and-forward TTL. */
   STORE_TTL_SECONDS?: string;
   /** Per-IP store byte budget (bytes) and window (ms); optional overrides. */
@@ -62,13 +61,49 @@ export function isValidRoomId(id: string): boolean {
   return /^[A-Za-z0-9_-]{16,48}$/.test(id);
 }
 
+/**
+ * Normalize an origin for comparison: trim surrounding whitespace and strip a
+ * trailing slash. Browsers send the `Origin` header WITHOUT a trailing slash
+ * (e.g. "https://app.example.com"), but hand-edited ALLOWED_ORIGINS values
+ * routinely include one ("https://app.example.com/"), which would otherwise
+ * silently never match. Returns "" for null/undefined/empty input.
+ */
+export function normalizeOrigin(origin: string | null | undefined): string {
+  if (!origin) return "";
+  return origin.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Parse the ALLOWED_ORIGINS env policy into a structured form:
+ *   - `{ wildcard: true }`         -> "*", allow any origin (DEV ONLY).
+ *   - `{ wildcard: false, list }`  -> the normalized, de-duplicated allow-list.
+ *
+ * Blank entries are dropped so a stray trailing comma can't widen the policy,
+ * and every entry is normalized so trailing-slash mismatches don't lock peers
+ * out. Shared by `corsHeaders` and `isOriginAllowed` so the HTTP (CORS) and
+ * WebSocket-upgrade paths can never drift apart.
+ */
+export function parseAllowedOrigins(allowed: string): {
+  wildcard: boolean;
+  list: string[];
+} {
+  if (allowed.trim() === "*") return { wildcard: true, list: [] };
+  const list = allowed
+    .split(",")
+    .map((s) => normalizeOrigin(s))
+    .filter(Boolean);
+  return { wildcard: false, list: Array.from(new Set(list)) };
+}
+
 export function corsHeaders(origin: string | null, allowed: string): HeadersInit {
   // When ALLOWED_ORIGINS is "*", echo any origin. Otherwise only allow listed.
-  const list = allowed.split(",").map((s) => s.trim());
+  const policy = parseAllowedOrigins(allowed);
   let allowOrigin = "null";
-  if (allowed.trim() === "*") {
+  if (policy.wildcard) {
     allowOrigin = origin ?? "*";
-  } else if (origin && list.includes(origin)) {
+  } else if (origin && policy.list.includes(normalizeOrigin(origin))) {
+    // Echo the caller's exact Origin (browsers send it without a trailing
+    // slash), not the normalized comparison form.
     allowOrigin = origin;
   }
   return {
@@ -90,12 +125,43 @@ export function corsHeaders(origin: string | null, allowed: string): HeadersInit
  * rejects both disallowed and absent origins.
  */
 export function isOriginAllowed(origin: string | null, allowed: string): boolean {
-  if (allowed.trim() === "*") return true;
+  const policy = parseAllowedOrigins(allowed);
+  if (policy.wildcard) return true;
   if (!origin) return false;
-  return allowed
-    .split(",")
-    .map((s) => s.trim())
-    .includes(origin);
+  return policy.list.includes(normalizeOrigin(origin));
+}
+
+/**
+ * Known placeholder shipped in wrangler.toml. If it survives into a running
+ * deployment, ALLOWED_ORIGINS was never configured for the real site.
+ */
+const PLACEHOLDER_ORIGIN = "https://your-app.pages.dev";
+let originPolicyWarned = false;
+
+/**
+ * One-time (per isolate) sanity check that ALLOWED_ORIGINS looks
+ * production-ready. Purely advisory: it logs but never changes behavior.
+ */
+function warnOnSuspiciousOriginPolicy(allowed: string): void {
+  if (originPolicyWarned) return;
+  originPolicyWarned = true;
+  const policy = parseAllowedOrigins(allowed);
+  if (policy.wildcard) {
+    console.warn(
+      "[securesend] ALLOWED_ORIGINS is '*': every origin is permitted. Set it " +
+        "to your real site origin(s) before production.",
+    );
+  } else if (policy.list.length === 0) {
+    console.warn(
+      "[securesend] ALLOWED_ORIGINS is empty after parsing: all browser origins " +
+        "will be rejected. Set it to your site origin(s).",
+    );
+  } else if (policy.list.includes(PLACEHOLDER_ORIGIN)) {
+    console.warn(
+      `[securesend] ALLOWED_ORIGINS still contains the placeholder ${PLACEHOLDER_ORIGIN}. ` +
+        "Replace it with your deployed origin.",
+    );
+  }
 }
 
 /** Best-effort client IP for rate-limit bucketing. */
@@ -240,6 +306,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
+    warnOnSuspiciousOriginPolicy(env.ALLOWED_ORIGINS);
     const cors = corsHeaders(origin, env.ALLOWED_ORIGINS);
 
     // Pre-flight
