@@ -58,11 +58,10 @@ bucket_name = "securesend-blobs"
 
 # ---------------------------------------------------------------------------
 # CORS / allowed origins for the signaling endpoint.
-# Set this to YOUR deployed Pages origin in production to lock down who may
-# open rooms. Comma separated. "*" allows any origin (dev only).
+# Comma-separated. "*" allows any origin (dev only).
 # ---------------------------------------------------------------------------
 [vars]
-ALLOWED_ORIGINS = "https://your-app.pages.dev"   # CHANGE ME to your Pages origin(s)
+ALLOWED_ORIGINS = "https://securesend.pages.dev"
 ROOM_TTL_SECONDS = "600"        # invite codes expire after 10 minutes
 RECONNECT_GRACE_SECONDS = "15"  # short grace period for a refreshing peer
 STORE_TTL_SECONDS = "86400"     # store-and-forward blobs expire after 24h
