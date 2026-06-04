@@ -16,9 +16,9 @@
  *     HKDF-SHA-256 to derive a uniformly random AES-256-GCM key. HKDF also
  *     binds the key to a context string and an optional salt.
  * 5.  Optional passphrase: if the inviter sets a passphrase, we additionally
- *     fold a PBKDF2-derived value into the HKDF input keying material (IKM),
- *     so deriving the AES key also requires knowing the passphrase. This
- *     defends against a malicious party who obtains the invite link.
+ *     mix a PBKDF2-derived value into the HKDF `info`, so deriving the AES key
+ *     also requires knowing the passphrase. This defends against a malicious
+ *     party who obtains the invite link.
  * 6.  Files are encrypted chunk-by-chunk with AES-256-GCM. Every chunk uses a
  *     UNIQUE random 12-byte IV. Chunk metadata (index, total, filename, size,
  *     mime) is authenticated via AES-GCM Additional Authenticated Data (AAD)
@@ -38,13 +38,6 @@ export const IV_LENGTH = 12;
 
 /** Context string baked into HKDF so derived keys are domain-separated. */
 const HKDF_INFO_BASE = "securesend/v1/aes-256-gcm";
-
-/**
- * PBKDF2 iteration count used when stretching an optional passphrase. Raised
- * from the original 100k to 600k to match current OWASP guidance for
- * PBKDF2-HMAC-SHA256.
- */
-const PBKDF2_ITERATIONS = 600_000;
 
 // ---------------------------------------------------------------------------
 // Base64 helpers (URL-safe variants used for invite payloads).
@@ -278,7 +271,7 @@ export async function deriveStoredAesKey(
 }
 
 /**
- * Stretch a low-entropy passphrase with PBKDF2-SHA256 (600k iterations) into
+ * Stretch a low-entropy passphrase with PBKDF2-SHA256 (100k iterations) into
  * 256 bits of key material. The salt is the per-transfer HKDF salt.
  */
 async function stretchPassphrase(
@@ -298,7 +291,7 @@ async function stretchPassphrase(
         name: "PBKDF2",
         hash: "SHA-256",
         salt: toArrayBuffer(salt),
-        iterations: PBKDF2_ITERATIONS,
+        iterations: 100_000,
       },
       pbkdf2Key,
       256,
