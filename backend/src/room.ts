@@ -12,8 +12,10 @@
  *     stores `data` payloads.
  *   - Room auto-expires after ROOM_TTL_SECONDS (invite code lifetime) using a
  *     DO alarm. Expired rooms close all sockets and clear state.
- *   - If a peer disconnects, the other is told `peer-left`. The slot is held
- *     for RECONNECT_GRACE_SECONDS so a refreshing peer can rejoin its role.
+ *   - If a peer disconnects, the other is told `peer-left` and the slot is
+ *     freed immediately, so either side can reconnect into it until the room
+ *     TTL expires. (Transfer direction is fixed client-side and is independent
+ *     of the connection-order slot, so reclaiming a freed slot always works.)
  *   - No file bytes ever pass through here; the WebRTC DataChannel is P2P.
  */
 
@@ -23,7 +25,10 @@ import { clampTtl, makeError, otherRole, PeerRole, SignalEnvelope } from "./prot
 interface PeerSlot {
   socket: WebSocket;
   role: PeerRole;
-  /** A per-connection token so a reconnect can reclaim the same role/slot. */
+  /**
+   * A per-connection token so a stale socket's close handler can't evict a
+   * peer that has already reconnected into the same role.
+   */
   sessionToken: string;
 }
 
@@ -33,12 +38,6 @@ export class SignalingRoom implements DurableObject {
 
   /** Up to two active peers, keyed by role. */
   private peers = new Map<PeerRole, PeerSlot>();
-
-  /**
-   * When a peer drops, we remember which role is "reserved" for a short
-   * grace window so a page refresh can reclaim it before the slot frees up.
-   */
-  private reservedRoles = new Map<PeerRole, number>(); // role -> expiry ms
 
   /** Whether the TTL alarm (room expiry) has been scheduled. */
   private ttlScheduled = false;
@@ -84,11 +83,6 @@ export class SignalingRoom implements DurableObject {
     );
   }
 
-  private graceSeconds(): number {
-    const n = parseInt(this.env.RECONNECT_GRACE_SECONDS ?? "15", 10);
-    return Number.isFinite(n) && n >= 0 ? n : 15;
-  }
-
   async fetch(request: Request): Promise<Response> {
     // The initiator may request a custom expiry via ?ttl=<seconds>.
     const url = new URL(request.url);
@@ -122,10 +116,8 @@ export class SignalingRoom implements DurableObject {
       await this.state.storage.setAlarm(this.expiresAt);
     }
 
-    const now = Date.now();
-    this.pruneReservations(now);
-
-    // Determine which role this socket should take.
+    // Determine which role this socket should take. A disconnected peer frees
+    // its slot immediately, so a reconnecting peer simply takes the open slot.
     let role: PeerRole | null = null;
 
     if (!this.peers.has("initiator")) {
@@ -145,7 +137,6 @@ export class SignalingRoom implements DurableObject {
     const sessionToken = crypto.randomUUID();
     const slot: PeerSlot = { socket, role, sessionToken };
     this.peers.set(role, slot);
-    this.reservedRoles.delete(role); // claimed, no longer just reserved
 
     const peerPresent = this.peers.size === 2;
 
@@ -232,13 +223,8 @@ export class SignalingRoom implements DurableObject {
     if (current && current.sessionToken === slot.sessionToken) {
       this.peers.delete(slot.role);
 
-      // Reserve the role briefly so a refresh can reclaim it.
-      const grace = this.graceSeconds();
-      if (grace > 0) {
-        this.reservedRoles.set(slot.role, Date.now() + grace * 1000);
-      }
-
-      // Tell the remaining peer the other side left.
+      // Tell the remaining peer the other side left. The freed slot can be
+      // reclaimed by a reconnecting peer until the room's TTL alarm fires.
       const other = this.peers.get(this.otherRole(slot.role));
       if (other) {
         this.sendRaw(
@@ -248,8 +234,8 @@ export class SignalingRoom implements DurableObject {
       }
     }
 
-    // If the room is now empty, let the alarm handle final cleanup. We do not
-    // proactively destroy here because a reconnect may arrive within grace.
+    // If the room is now empty, let the TTL alarm handle final cleanup. We do
+    // not proactively destroy here because a reconnect may still arrive.
   }
 
   /** DO alarm: room TTL expired. Close everything and wipe state. */
@@ -266,18 +252,11 @@ export class SignalingRoom implements DurableObject {
       }
     }
     this.peers.clear();
-    this.reservedRoles.clear();
     await this.state.storage.deleteAll();
     this.ttlScheduled = false;
   }
 
   // --- helpers ---------------------------------------------------------------
-
-  private pruneReservations(now: number): void {
-    for (const [role, expiry] of this.reservedRoles) {
-      if (expiry <= now) this.reservedRoles.delete(role);
-    }
-  }
 
   private otherRole(role: PeerRole): PeerRole {
     return otherRole(role);
