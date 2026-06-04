@@ -17,7 +17,7 @@ export type SignalKind =
   // --- Server -> client control messages ---
   | "welcome" // sent to a peer right after it joins; tells it its role
   | "peer-joined" // the other peer connected
-  | "peer-left" // the other peer disconnected (may reconnect within grace)
+  | "peer-left" // the other peer disconnected
   | "room-full" // a third peer tried to join; it is rejected
   | "room-expired" // the room TTL elapsed
   | "error" // generic error with a human-readable reason
