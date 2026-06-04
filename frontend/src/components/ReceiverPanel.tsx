@@ -171,20 +171,21 @@ export function ReceiverPanel({
   // ---- Completed: offer downloads ----
   if (phase === "complete" && received.length > 0) {
     const single = received.length === 1;
+    const multiWithFiles = !single && receivedFiles.length > 0;
     return (
       <div className="card">
         <div className="success-icon">📥</div>
         <h2 className="card__title u-center">
           {single ? "Received & decrypted" : `${received.length} items received`}
         </h2>
-        {!single && receivedFiles.length > 0 && (
-          <>
-            <button className="btn btn--block u-mt-14" onClick={handleSaveAll}>
+        {multiWithFiles && (
+          <div className="u-mt-14">
+            <button className="btn btn--block" onClick={handleSaveAll}>
               {canNativeShareAll
                 ? allMedia
                   ? "📸 Save all to Photos / Files"
-                  : "⬇ Save all"
-                : "⬇ Download all"}
+                  : "⬇ Save all files"
+                : "⬇ Download all files"}
             </button>
             <p className="card__hint u-mt-8 u-center">
               {canNativeShareAll
@@ -196,7 +197,12 @@ export function ReceiverPanel({
                 {saveAllHint}
               </p>
             )}
-          </>
+          </div>
+        )}
+        {!single && receivedFiles.length === 0 && (
+          <p className="card__hint u-mt-14 u-center">
+            These items were already saved straight to disk, so there is nothing left to download here.
+          </p>
         )}
         <div className="received-list">
           {received.map((item, i) => (
