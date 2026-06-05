@@ -13,6 +13,8 @@
  * touches the network.
  */
 
+import { buildZip, type ZipEntry } from "./zip";
+
 /** True for image MIME types (jpeg/png/gif/webp/heic/…). */
 export function isImage(mime: string): boolean {
   return /^image\//i.test(mime);
@@ -94,4 +96,91 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.removeChild(a);
   // Revoke after a delay so the download has time to start.
   setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/** A single file to include in a multi-file ZIP download. */
+export interface BundleItem {
+  blob: Blob;
+  name: string;
+}
+
+/** Outcome of {@link saveAllAsZip}. */
+export type SaveAllResult = "shared" | "downloaded" | "cancelled";
+
+/**
+ * Make a ZIP entry name safe: drop directory separators (no path traversal),
+ * strip control characters and leading dots, and fall back to a default.
+ */
+function sanitizeEntryName(name: string): string {
+  let out = "";
+  for (const ch of name || "") {
+    const code = ch.charCodeAt(0);
+    if (code < 0x20) continue; // strip control characters
+    out += ch === "/" || ch === "\\" ? "_" : ch;
+  }
+  out = out.replace(/^\.+/, "").trim();
+  return out || "file";
+}
+
+/**
+ * Ensure a name is unique within the archive by appending " (n)" before the
+ * extension on collisions (case-insensitive, mirroring how OSes de-dupe names).
+ */
+function uniqueName(name: string, used: Map<string, number>): string {
+  const key = name.toLowerCase();
+  const count = used.get(key) ?? 0;
+  used.set(key, count + 1);
+  if (count === 0) return name;
+  const dot = name.lastIndexOf(".");
+  return dot > 0
+    ? `${name.slice(0, dot)} (${count})${name.slice(dot)}`
+    : `${name} (${count})`;
+}
+
+/**
+ * Read every blob into memory and bundle them into a single ZIP File. Exposed
+ * for testing; most callers want {@link saveAllAsZip}.
+ */
+export async function buildZipFile(
+  items: BundleItem[],
+  zipName: string,
+): Promise<File> {
+  const used = new Map<string, number>();
+  const entries: ZipEntry[] = [];
+  for (const item of items) {
+    const name = uniqueName(sanitizeEntryName(item.name), used);
+    const data = new Uint8Array(await item.blob.arrayBuffer());
+    entries.push({ name, data });
+  }
+  return new File([buildZip(entries)], zipName, { type: "application/zip" });
+}
+
+/** Timestamped archive name, e.g. securesend-2026-06-05-17-07-20.zip */
+function zipArchiveName(): string {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  return `securesend-${stamp}.zip`;
+}
+
+/**
+ * Bundle several received files into one ZIP and hand it to the user.
+ *
+ * Saving works on every platform with a single user gesture:
+ *   - Where the native share sheet can take the file (notably iOS/iPadOS), we
+ *     offer it first so the user gets "Save to Files", AirDrop, etc. This is
+ *     the reliable iOS path — sequential downloads are blocked there.
+ *   - Otherwise (desktop, Android) we fall back to a classic anchor download,
+ *     which is also used if the share sheet reports unsupported/failed.
+ *
+ * Must be invoked from a user gesture (tap/click).
+ */
+export async function saveAllAsZip(items: BundleItem[]): Promise<SaveAllResult> {
+  const zip = await buildZipFile(items, zipArchiveName());
+  if (canShareFile(zip)) {
+    const result = await shareFile(zip);
+    if (result === "shared") return "shared";
+    if (result === "cancelled") return "cancelled";
+    // "unsupported" / "failed" → fall through to a plain download.
+  }
+  downloadBlob(zip, zip.name);
+  return "downloaded";
 }
