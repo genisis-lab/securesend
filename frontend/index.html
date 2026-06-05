@@ -20,12 +20,12 @@
       - WebRTC media/data is negotiated by the browser and not restricted by CSP.
       Note: 'wasm-unsafe-eval' is omitted; we use Web Crypto (no wasm).
 
-      CHANGE ME: replace `securesend-signal.example.workers.dev` (here AND in
-      public/_headers) with your deployed signaling Worker's origin.
+      Production allows the deployed signaling Worker's origin. Keep this in
+      sync with public/_headers and src/lib/config.ts.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.example.workers.dev wss://securesend-signal.example.workers.dev ws://localhost:8787 http://localhost:8787; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.neil27.workers.dev wss://securesend-signal.neil27.workers.dev ws://localhost:8787 http://localhost:8787; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     />
     <title>SecureSend — Encrypted P2P File Transfer</title>
   </head>
