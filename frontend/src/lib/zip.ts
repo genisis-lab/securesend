@@ -3,9 +3,10 @@
  *
  * Why hand-roll this? SecureSend ships no zip/compression dependency (we keep
  * the bundle small and audit-friendly), but "Download all" needs to hand the
- * recipient a SINGLE file. Bundling every received file into one archive is the
- * only approach that reliably works in one user gesture on iOS Safari, which
- * blocks the rapid-fire programmatic downloads a "save each file" loop needs.
+ * recipient a SINGLE file. Bundling every received file into one archive is
+ * the only approach that reliably works in one user gesture on iOS Safari,
+ * which blocks the rapid-fire programmatic downloads a "save each file" loop
+ * needs.
  *
  * The archive uses the STORE method (no compression): received payloads are
  * usually already-compressed media, so DEFLATE would add CPU cost and code for
@@ -14,10 +15,10 @@
  * Everything is computed in memory from already-decrypted bytes; nothing here
  * touches the network. Pure and side-effect-free so it is easy to unit-test.
  *
- * Format reference: PKZIP APPNOTE — local file header, central directory, EOCD.
- * Sizes/offsets are 32-bit (no ZIP64), which is fine because the receiver
- * reassembles files in memory anyway (see LARGE_FILE_WARN_BYTES); a combined
- * archive over 4 GiB is not a realistic in-browser scenario.
+ * Format reference: PKZIP APPNOTE — local file header, central directory,
+ * EOCD. Sizes/offsets are 32-bit (no ZIP64), which is fine because the
+ * receiver reassembles files in memory anyway (see LARGE_FILE_WARN_BYTES); a
+ * combined archive over 4 GiB is not a realistic in-browser scenario.
  */
 
 export interface ZipEntry {
@@ -68,8 +69,7 @@ const MAX_ZIP_BYTES = 0xffffffff;
  */
 export function buildZip(entries: ZipEntry[]): Blob {
   const encoder = new TextEncoder();
-  const localParts: Uint8Array[] = [];
-  const centralParts: Uint8Array[] = [];
+  const parts: Uint8Array[] = [];
   const { date, time } = dosDateTime(new Date());
 
   let total = 0;
@@ -78,6 +78,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
     throw new Error("Archive too large for a 32-bit ZIP");
   }
 
+  const centralParts: Uint8Array[] = [];
   let offset = 0;
   for (const entry of entries) {
     const nameBytes = encoder.encode(entry.name);
@@ -100,7 +101,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
     lv.setUint16(26, nameBytes.length, true);
     lv.setUint16(28, 0, true); // extra field length
     local.set(nameBytes, 30);
-    localParts.push(local, data);
+    parts.push(local, data);
 
     // ---- Central directory header (46 bytes + name) ----
     const central = new Uint8Array(46 + nameBytes.length);
@@ -130,6 +131,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
 
   const centralSize = centralParts.reduce((n, c) => n + c.length, 0);
   const centralOffset = offset;
+  for (const c of centralParts) parts.push(c);
 
   // ---- End of central directory record (22 bytes) ----
   const end = new Uint8Array(22);
@@ -142,8 +144,19 @@ export function buildZip(entries: ZipEntry[]): Blob {
   ev.setUint32(12, centralSize, true); // size of the central directory
   ev.setUint32(16, centralOffset, true); // offset of central directory
   ev.setUint16(20, 0, true); // .zip file comment length
+  parts.push(end);
 
-  return new Blob([...localParts, ...centralParts, end], {
-    type: "application/zip",
-  });
+  // Concatenate into one ArrayBuffer-backed Uint8Array. Building the Blob
+  // directly from the parts array fails under modern TS libs, where Uint8Array
+  // is Uint8Array<ArrayBufferLike> and no longer satisfies BlobPart.
+  let totalLength = 0;
+  for (const p of parts) totalLength += p.length;
+  const merged = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const p of parts) {
+    merged.set(p, pos);
+    pos += p.length;
+  }
+
+  return new Blob([merged], { type: "application/zip" });
 }
