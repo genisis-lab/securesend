@@ -68,8 +68,7 @@ const MAX_ZIP_BYTES = 0xffffffff;
  */
 export function buildZip(entries: ZipEntry[]): Blob {
   const encoder = new TextEncoder();
-  const localParts: Uint8Array[] = [];
-  const centralParts: Uint8Array[] = [];
+  const parts: Uint8Array[] = [];
   const { date, time } = dosDateTime(new Date());
 
   let total = 0;
@@ -78,6 +77,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
     throw new Error("Archive too large for a 32-bit ZIP");
   }
 
+  const centralParts: Uint8Array[] = [];
   let offset = 0;
   for (const entry of entries) {
     const nameBytes = encoder.encode(entry.name);
@@ -100,7 +100,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
     lv.setUint16(26, nameBytes.length, true);
     lv.setUint16(28, 0, true); // extra field length
     local.set(nameBytes, 30);
-    localParts.push(local, data);
+    parts.push(local, data);
 
     // ---- Central directory header (46 bytes + name) ----
     const central = new Uint8Array(46 + nameBytes.length);
@@ -130,6 +130,7 @@ export function buildZip(entries: ZipEntry[]): Blob {
 
   const centralSize = centralParts.reduce((n, c) => n + c.length, 0);
   const centralOffset = offset;
+  for (const c of centralParts) parts.push(c);
 
   // ---- End of central directory record (22 bytes) ----
   const end = new Uint8Array(22);
@@ -142,8 +143,20 @@ export function buildZip(entries: ZipEntry[]): Blob {
   ev.setUint32(12, centralSize, true); // size of the central directory
   ev.setUint32(16, centralOffset, true); // offset of central directory
   ev.setUint16(20, 0, true); // .zip file comment length
+  parts.push(end);
 
-  return new Blob([...localParts, ...centralParts, end], {
-    type: "application/zip",
-  });
+  // Concatenate into one ArrayBuffer-backed Uint8Array. (Building the Blob
+  // directly from the parts array fails under the modern TS lib, where
+  // Uint8Array is Uint8Array<ArrayBufferLike> and no longer satisfies the
+  // BlobPart / ArrayBufferView<ArrayBuffer> requirement.)
+  let totalLength = 0;
+  for (const p of parts) totalLength += p.length;
+  const merged = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const p of parts) {
+    merged.set(p, pos);
+    pos += p.length;
+  }
+
+  return new Blob([merged], { type: "application/zip" });
 }
