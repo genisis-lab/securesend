@@ -46,6 +46,7 @@ export function ReceiverPanel({
   const phase = state?.phase ?? "idle";
   const statusText = useMemo(() => receiverStatus(phase), [phase]);
   const received = state?.receivedFiles ?? [];
+  const incompleteInvite = !linkSecret;
 
   const join = (pass?: string) => {
     if (mode === "store") onStoreJoin(roomId, linkSecret, pass);
@@ -54,18 +55,35 @@ export function ReceiverPanel({
 
   // Auto-join if no passphrase is required.
   useEffect(() => {
+    if (incompleteInvite) return;
     if (!requiresPassphrase && !joined) {
       setJoined(true);
       join();
     }
     // Intentionally only re-run when the invite identity changes; `join` is a
     // stable session action. (react-hooks/exhaustive-deps is not configured.)
-  }, [requiresPassphrase, joined, roomId, linkSecret, mode]);
+  }, [requiresPassphrase, joined, roomId, linkSecret, mode, incompleteInvite]);
 
   const handleJoin = () => {
+    if (incompleteInvite) return;
     setJoined(true);
     join(requiresPassphrase ? passphrase : undefined);
   };
+
+  if (incompleteInvite) {
+    return (
+      <div className="card">
+        <h2 className="card__title">Incomplete invite link</h2>
+        <p className="error-text" role="alert">
+          This invite is missing its secret key. Ask the sender to copy the full
+          SecureSend link again.
+        </p>
+        <button className="btn btn--block u-mt-16" onClick={onReset}>
+          Back to home
+        </button>
+      </div>
+    );
+  }
 
   // ---- Ready to save (streaming-to-disk; needs a user gesture) ----
   if (phase === "ready-to-save") {
@@ -82,6 +100,12 @@ export function ReceiverPanel({
           so even very large files won't fill your device's memory. Click below
           and choose where to save it.
         </p>
+        {!live && (
+          <p className="card__hint u-center">
+            If the network drops, the encrypted download will resume automatically
+            from the last verified byte.
+          </p>
+        )}
         <button
           className="btn btn--block"
           onClick={live ? onChooseLiveSave : onDownloadToDisk}
@@ -281,6 +305,12 @@ export function ReceiverPanel({
               <p className="card__hint u-mt-14">
                 Your safety code:{" "}
                 <span className="fingerprint">{state.fingerprint}</span>
+                <button
+                  className="btn btn--ghost btn--sm u-ml-8"
+                  onClick={() => void navigator.clipboard?.writeText(state.fingerprint ?? "")}
+                >
+                  Copy safety code
+                </button>
                 <br />
                 For maximum security, compare this with the sender over a trusted
                 channel — it should match exactly on both screens.

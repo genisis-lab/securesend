@@ -17,8 +17,15 @@ export function PasteLink({ onOpen }: Props) {
 
   const open = () => {
     const hash = extractHash(value.trim());
-    if (!hash || !parseInviteFromHash(hash)) {
+    const invite = hash ? parseInviteFromHash(hash) : null;
+    if (!hash || !invite) {
       setError("That doesn't look like a valid SecureSend invite link.");
+      return;
+    }
+    if (!invite.linkSecret) {
+      setError(
+        "This invite is missing its secret key. Ask the sender to copy the full link again.",
+      );
       return;
     }
     setError(null);
