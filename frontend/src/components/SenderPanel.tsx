@@ -4,7 +4,7 @@ import { FileDropzone } from "./FileDropzone";
 import { InviteLink } from "./InviteLink";
 import { TransferProgressView } from "./TransferProgress";
 import { ConnectionBadge } from "./ConnectionBadge";
-import { formatBytes } from "../lib/format";
+import { formatBytes, formatEta } from "../lib/format";
 import { textToFile, LARGE_FILE_WARN_BYTES } from "../lib/download";
 
 interface Props {
@@ -38,8 +38,36 @@ const EXPIRY_OPTIONS: { label: string; seconds: number }[] = [
   { label: "24 hours", seconds: 24 * 60 * 60 },
 ];
 const DEFAULT_EXPIRY_SECONDS = 10 * 60;
+const ESTIMATED_UPLOAD_BYTES_PER_SECOND = 1_250_000; // 10 Mbps
 
 type Mode = "files" | "text";
+
+const PASSPHRASE_WORDS = [
+  "anchor",
+  "bright",
+  "copper",
+  "delta",
+  "ember",
+  "forest",
+  "glide",
+  "harbor",
+  "ivory",
+  "juno",
+  "kernel",
+  "lunar",
+  "mesa",
+  "nova",
+  "orbit",
+  "prairie",
+  "quartz",
+  "river",
+  "summit",
+  "tango",
+  "umber",
+  "velvet",
+  "willow",
+  "zenith",
+];
 
 /** The "send" flow: pick files/text -> create invite -> wait -> transfer. */
 export function SenderPanel({ state, onStart, onCancel, onReset, initialText, initialFiles }: Props) {
@@ -51,6 +79,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
   const [expirySeconds, setExpirySeconds] = useState(DEFAULT_EXPIRY_SECONDS);
   const [deliveryMode, setDeliveryMode] = useState<"live" | "store">("live");
   const [burnAfter, setBurnAfter] = useState(false);
+  const [fileNote, setFileNote] = useState("");
 
   // When content is shared into the app after mount, drop it into the right tab.
   useEffect(() => {
@@ -84,6 +113,9 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
   const statusText = useMemo(() => senderStatus(phase), [phase]);
   const totalSize = files.reduce((n, f) => n + f.size, 0);
   const tooLarge = totalSize > LARGE_FILE_WARN_BYTES;
+  const estimatedUploadTime =
+    totalSize > 0 ? formatEta(totalSize / ESTIMATED_UPLOAD_BYTES_PER_SECOND) : "—";
+  const passphraseStrength = describePassphrase(passphrase);
 
   const addFiles = (incoming: File[]) => {
     // De-dupe by name+size so re-dropping doesn't double-add.
@@ -104,14 +136,38 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
   const removeFile = (idx: number) =>
     setFiles((prev) => prev.filter((_, i) => i !== idx));
 
+  const moveFile = (idx: number, direction: -1 | 1) => {
+    setFiles((prev) => {
+      const nextIndex = idx + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [file] = next.splice(idx, 1);
+      next.splice(nextIndex, 0, file);
+      return next;
+    });
+  };
+
+  const renameFile = (idx: number, name: string) => {
+    setFiles((prev) =>
+      prev.map((file, i) => (i === idx ? copyFileWithName(file, name) : file)),
+    );
+  };
+
   const resetLocal = () => {
     setFiles([]);
     setText("");
+    setFileNote("");
     onReset();
   };
 
   const handleCreate = () => {
-    const payload = mode === "text" ? [textToFile(text)] : files;
+    const note = fileNote.trim();
+    const payload =
+      mode === "text"
+        ? [textToFile(text)]
+        : note
+          ? [...files, textToFile(note)]
+          : files;
     if (payload.length === 0) return;
     onStart(
       payload,
@@ -126,6 +182,14 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
     (mode === "files" ? files.length > 0 : text.trim().length > 0) &&
     (!usePassphrase || passphrase.length >= 4);
 
+  const generatePassphrase = () => {
+    const bytes = new Uint8Array(4);
+    crypto.getRandomValues(bytes);
+    setPassphrase(
+      Array.from(bytes, (byte) => PASSPHRASE_WORDS[byte % PASSPHRASE_WORDS.length]).join("-"),
+    );
+  };
+
   // ---- Store-and-forward: uploaded, ready to share (sender can leave) ----
   if (phase === "stored" && state?.inviteUrl) {
     return (
@@ -139,6 +203,16 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
           encrypted and stored. Send this link — your recipient can download it
           anytime before it expires. <strong>You can close this tab now.</strong>
         </p>
+        <div className="audit-panel u-mt-14">
+          <div className="audit-panel__row">
+            <strong>Delivery receipt</strong>
+            <span>Upload complete. Download confirmation happens on the recipient's device.</span>
+          </div>
+          <div className="audit-panel__row">
+            <strong>Stored mode</strong>
+            <span>{burnAfter ? "One-time retrieval is on." : "Auto-delete at expiry."}</span>
+          </div>
+        </div>
         <InviteLink url={state.inviteUrl} expiresAt={state.expiresAt ?? null} />
         <button className="btn btn--ghost btn--block u-mt-14" onClick={resetLocal}>
           Send something else
@@ -161,6 +235,16 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
           end-to-end and {state.delivered ? "confirmed received by your recipient" : "sent"}{" "}
           peer-to-peer. The room is destroyed and keys cleared from memory.
         </p>
+        <div className="audit-panel u-mt-14">
+          <div className="audit-panel__row">
+            <strong>Delivery receipt</strong>
+            <span>{state.delivered ? "Receiver acknowledged the full transfer." : "Sent without final acknowledgement."}</span>
+          </div>
+          <div className="audit-panel__row">
+            <strong>Mode</strong>
+            <span>Live peer-to-peer</span>
+          </div>
+        </div>
         <button className="btn btn--block" onClick={resetLocal}>
           Send something else
         </button>
@@ -192,7 +276,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             : state?.error ??
               (phase === "expired"
                 ? "The invite link expired before the transfer completed."
-                : "The other peer left before the transfer finished.")}
+                : "The other peer left before the transfer finished. Check both devices are online, then start again.")}
         </p>
         <button className="btn btn--block u-mt-16" onClick={resetLocal}>
           Start over
@@ -242,22 +326,54 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
           {files.length > 0 && (
             <div className="file-list">
               {files.map((f, i) => (
-                <div className="file-pill" key={`${f.name}:${f.size}:${i}`}>
+                <div className="file-pill file-pill--editable" key={`${f.name}:${f.size}:${i}`}>
                   <div className="file-pill__meta">
-                    <div className="file-pill__name">{f.name}</div>
+                    <input
+                      className="input input--compact"
+                      value={f.name}
+                      aria-label={`Rename ${f.name}`}
+                      onChange={(e) => renameFile(i, e.target.value)}
+                    />
                     <div className="file-pill__size">
                       {formatBytes(f.size)} · {f.type || "unknown type"}
                     </div>
                   </div>
-                  <button className="btn btn--ghost" onClick={() => removeFile(i)}>
-                    Remove
-                  </button>
+                  <div className="file-actions">
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => moveFile(i, -1)}
+                      disabled={i === 0}
+                    >
+                      Move up
+                    </button>
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => moveFile(i, 1)}
+                      disabled={i === files.length - 1}
+                    >
+                      Move down
+                    </button>
+                    <button className="btn btn--ghost btn--sm" onClick={() => removeFile(i)}>
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
               <div className="file-list__total">
                 {files.length} item{files.length > 1 ? "s" : ""} ·{" "}
-                {formatBytes(totalSize)} total
+                {formatBytes(totalSize)} total · about {estimatedUploadTime} at 10 Mbps
               </div>
+              <label className="label" htmlFor="file-note">
+                Optional message
+              </label>
+              <textarea
+                id="file-note"
+                className="input textarea textarea--compact"
+                placeholder="Add a note that arrives as a small text file."
+                value={fileNote}
+                onChange={(e) => setFileNote(e.target.value)}
+                rows={3}
+              />
             </div>
           )}
 
@@ -369,15 +485,54 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             Protect with a passphrase (recommended)
           </label>
           {usePassphrase && (
-            <input
-              className="input"
-              type="password"
-              placeholder="Shared passphrase (tell your recipient out-of-band)"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              autoComplete="new-password"
-            />
+            <>
+              <input
+                className="input"
+                type="password"
+                placeholder="Shared passphrase (tell your recipient out-of-band)"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                autoComplete="new-password"
+              />
+              <div className="row row--wrap u-mt-8">
+                <span className="pill">Passphrase strength: {passphraseStrength}</span>
+                <button className="btn btn--ghost btn--sm" type="button" onClick={generatePassphrase}>
+                  Generate passphrase
+                </button>
+              </div>
+            </>
           )}
+
+          <details className="details-panel u-mt-14">
+            <summary>What can the server see?</summary>
+            <p>
+              Live mode uses the server only to introduce the two browsers. Send
+              for later stores encrypted bytes, file metadata, expiry, and size.
+              File contents, passphrases, and decryption keys stay in browsers.
+            </p>
+          </details>
+
+          <details className="details-panel">
+            <summary>Transfer security details</summary>
+            <div className="audit-panel">
+              <div className="audit-panel__row">
+                <strong>Mode</strong>
+                <span>{deliveryMode === "live" ? "Live peer-to-peer" : "Send for later"}</span>
+              </div>
+              <div className="audit-panel__row">
+                <strong>Items</strong>
+                <span>{mode === "files" ? files.length + (fileNote.trim() ? 1 : 0) : 1}</span>
+              </div>
+              <div className="audit-panel__row">
+                <strong>Passphrase</strong>
+                <span>{usePassphrase ? "Required" : "Link secret only"}</span>
+              </div>
+              <div className="audit-panel__row">
+                <strong>Expiry</strong>
+                <span>{deliveryMode === "store" ? "Stored copy expires automatically" : EXPIRY_OPTIONS.find((opt) => opt.seconds === expirySeconds)?.label}</span>
+              </div>
+            </div>
+          </details>
 
           <button
             className="btn btn--block u-mt-18"
@@ -419,6 +574,15 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             label="Encrypting & sending…"
           />
           <ConnectionBadge type={state?.connectionType ?? null} />
+          {state?.recoveringConnection && (
+            <div className="warn" role="status">
+              <span>↻</span>
+              <span>
+                Connection health: recovering. Keep both tabs open; SecureSend
+                will retry the route automatically.
+              </span>
+            </div>
+          )}
           <button
             className="btn btn--danger btn--block u-mt-16"
             onClick={onCancel}
@@ -435,6 +599,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             progress={state?.progress ?? null}
             label="Encrypting & uploading…"
           />
+          <p className="card__hint u-mt-8">
+            Uploads can resume automatically after brief network drops. Keep this
+            tab open until the share link appears.
+          </p>
           <button
             className="btn btn--danger btn--block u-mt-16"
             onClick={onCancel}
@@ -471,4 +639,19 @@ function senderStatus(phase: string): string {
     default:
       return "Working…";
   }
+}
+
+function copyFileWithName(file: File, name: string): File {
+  const nextName = name.trim() || file.name;
+  return new File([file], nextName, {
+    type: file.type || "application/octet-stream",
+    lastModified: file.lastModified,
+  });
+}
+
+function describePassphrase(passphrase: string): string {
+  if (passphrase.length >= 18) return "strong";
+  if (passphrase.length >= 10) return "good";
+  if (passphrase.length >= 4) return "okay";
+  return "too short";
 }

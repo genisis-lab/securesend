@@ -51,6 +51,7 @@ function completeState(receivedFiles: SessionState["receivedFiles"]): SessionSta
 const baseProps = {
   mode: "live" as const,
   roomId: "room",
+  linkSecret: "secret",
   requiresPassphrase: false,
   onJoin: () => {},
   onStoreJoin: () => {},
@@ -59,6 +60,39 @@ const baseProps = {
 };
 
 describe("<ReceiverPanel>", () => {
+  it("blocks incomplete invite links before joining", () => {
+    const onJoin = vi.fn();
+    render(
+      <ReceiverPanel
+        {...baseProps}
+        state={null}
+        linkSecret={undefined}
+        onJoin={onJoin}
+      />,
+    );
+
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("missing its secret key");
+  });
+
+  it("explains resumable stored downloads while waiting for a save location", () => {
+    render(
+      <ReceiverPanel
+        {...baseProps}
+        mode="store"
+        linkSecret="secret"
+        state={{
+          ...completeState([]),
+          phase: "ready-to-save",
+          transferMode: "store",
+          canStreamToDisk: true,
+        }}
+      />,
+    );
+
+    expect(container.textContent).toContain("resume automatically");
+  });
+
   it("offers one ZIP download action for two or more in-memory received files", () => {
     render(
       <ReceiverPanel

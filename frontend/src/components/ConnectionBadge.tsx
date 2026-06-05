@@ -19,8 +19,8 @@ export function ConnectionBadge({ type }: Props) {
       <div className="conn-badge conn-badge--relay" title="Relayed via TURN — still end-to-end encrypted">
         <span aria-hidden>🔁</span>
         <span>
-          Relayed connection (via TURN). Still end-to-end encrypted — the relay
-          only sees scrambled data.
+          Connection health: fallback relay via TURN. Still end-to-end encrypted
+          — the relay only sees scrambled data.
         </span>
       </div>
     );
@@ -29,7 +29,7 @@ export function ConnectionBadge({ type }: Props) {
   return (
     <div className="conn-badge conn-badge--direct" title="Direct peer-to-peer connection">
       <span aria-hidden>⚡</span>
-      <span>Direct peer-to-peer connection</span>
+      <span>Connection health: direct peer-to-peer connection</span>
     </div>
   );
 }
