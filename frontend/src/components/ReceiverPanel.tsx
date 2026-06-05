@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { SessionState } from "../lib/session";
+import { saveAllAsZip } from "../lib/download";
 import { TransferProgressView } from "./TransferProgress";
 import { ReceivedFileItem } from "./ReceivedFileItem";
 import { ConnectionBadge } from "./ConnectionBadge";
@@ -39,6 +40,8 @@ export function ReceiverPanel({
 }: Props) {
   const [passphrase, setPassphrase] = useState("");
   const [joined, setJoined] = useState(false);
+  const [bundling, setBundling] = useState(false);
+  const [bundleNote, setBundleNote] = useState<string | null>(null);
 
   const phase = state?.phase ?? "idle";
   const statusText = useMemo(() => receiverStatus(phase), [phase]);
@@ -124,12 +127,68 @@ export function ReceiverPanel({
   // ---- Completed: offer downloads ----
   if (phase === "complete" && received.length > 0) {
     const single = received.length === 1;
+    // Only items that were reassembled in memory can be re-bundled. (Streamed-
+    // to-disk items have a null blob, but that path is single-file only.)
+    const downloadable = received.filter((item) => item.blob);
+    const canBundle = downloadable.length > 1;
+
+    const handleDownloadAll = async () => {
+      if (bundling) return;
+      setBundling(true);
+      setBundleNote(null);
+      try {
+        const result = await saveAllAsZip(
+          downloadable.map((item) => ({
+            blob: item.blob as Blob,
+            name: item.meta.name,
+          })),
+        );
+        if (result !== "cancelled") {
+          setBundleNote(
+            result === "shared"
+              ? "Shared a ZIP of all files."
+              : "Saved a ZIP with all files to your device.",
+          );
+          onSaved?.();
+        }
+      } catch {
+        setBundleNote(
+          "Couldn't build the ZIP — try saving the files individually below.",
+        );
+      } finally {
+        setBundling(false);
+      }
+    };
+
     return (
       <div className="card">
         <div className="success-icon">📥</div>
         <h2 className="card__title u-center">
           {single ? "Received & decrypted" : `${received.length} items received`}
         </h2>
+        {canBundle && (
+          <>
+            <button
+              className="btn btn--block u-mt-8"
+              onClick={handleDownloadAll}
+              disabled={bundling}
+              aria-busy={bundling}
+            >
+              {bundling
+                ? "Preparing ZIP…"
+                : `⬇ Download all (${downloadable.length})`}
+            </button>
+            {bundleNote && (
+              <p
+                className="card__hint u-center u-mt-10"
+                role="status"
+                aria-live="polite"
+              >
+                {bundleNote}
+              </p>
+            )}
+          </>
+        )}
         <div className="received-list">
           {received.map((item, i) => (
             <ReceivedFileItem
