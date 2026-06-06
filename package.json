@@ -2,7 +2,7 @@
   "name": "securesend",
   "version": "1.0.0",
   "private": true,
-  "description": "End-to-end encrypted peer-to-peer file transfer PWA. Backend is signaling-only; files never touch a server.",
+  "description": "End-to-end encrypted browser file transfer PWA with live P2P delivery and optional zero-knowledge store-and-forward.",
   "license": "MIT",
   "workspaces": [
     "frontend",
