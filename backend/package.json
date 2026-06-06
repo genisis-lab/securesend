@@ -2,7 +2,7 @@
   "name": "securesend-signal",
   "version": "1.0.0",
   "private": true,
-  "description": "Cloudflare Worker + Durable Object signaling server for SecureSend. Relays WebRTC/ECDH handshake messages only — never sees file contents or keys.",
+  "description": "Cloudflare Worker backend for SecureSend: WebRTC signaling, rate limiting, TURN config, and optional zero-knowledge R2 store-and-forward.",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
