@@ -48,6 +48,16 @@ interface StoredMeta {
 /** Multipart part size: 10 MiB. Above R2's 5 MiB minimum, below Worker limits. */
 const PART_SIZE = 10 * 1024 * 1024;
 
+/**
+ * Upper bound for the (opaque, client-encrypted) manifest string. The server
+ * never reads it, but bounding it stops a client from stashing arbitrarily
+ * large data in what is supposed to be small metadata.
+ */
+const MAX_MANIFEST_CHARS = 1_000_000;
+
+/** R2's multipart limit; also bounds the completion payload. */
+const MAX_PARTS = 10000;
+
 const META_SUFFIX = ":meta";
 const BODY_PREFIX = "blob/";
 
@@ -72,8 +82,9 @@ export function isValidId(id: string): boolean {
  * Handle a /api/store/* request. Returns null only if R2 isn't configured.
  *
  * @param chargeBytes Optional per-IP byte-budget hook invoked at `complete`
- *   with the finalized ciphertext size. If it returns false, the transfer is
- *   over budget: we abort the multipart upload, delete the slot, and reject.
+ *   with the SERVER-measured ciphertext size (never the client-declared one).
+ *   If it returns false, the transfer is over budget: the committed object and
+ *   slot are deleted and the request is rejected.
  */
 export async function handleStore(
   request: Request,
@@ -116,13 +127,24 @@ export async function handleStore(
     const id = decodeURIComponent(partMatch[1]);
     const partNumber = parseInt(partMatch[2], 10);
     if (!isValidId(id)) return text("Invalid id", 400, cors);
-    if (!(partNumber >= 1 && partNumber <= 10000)) {
+    if (!(partNumber >= 1 && partNumber <= MAX_PARTS)) {
       return text("Invalid part number", 400, cors);
     }
     const meta = await readMeta(bucket, id);
     if (!meta) return text("Not found", 404, cors);
     if (request.headers.get("X-Token") !== meta.token) return text("Forbidden", 403, cors);
-    if (meta.expiresAt < Date.now()) return text("Expired", 410, cors);
+    if (meta.expiresAt < Date.now()) {
+      // Expired before completion: opportunistically abort the multipart
+      // upload and drop the slot, so uncommitted parts don't linger in R2
+      // (uncommitted parts consume storage until aborted).
+      try {
+        bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId).abort();
+      } catch {
+        /* ignore */
+      }
+      await bucket.delete(id + META_SUFFIX);
+      return text("Expired", 410, cors);
+    }
 
     const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
     const body = await request.arrayBuffer();
@@ -144,21 +166,44 @@ export async function handleStore(
       manifest: string;
       size: number;
     };
-    if (!Array.isArray(payload.parts) || payload.parts.length === 0) {
+    if (
+      !Array.isArray(payload.parts) ||
+      payload.parts.length === 0 ||
+      payload.parts.length > MAX_PARTS
+    ) {
       return text("No parts", 400, cors);
     }
+    if (
+      typeof payload.manifest !== "string" ||
+      payload.manifest.length > MAX_MANIFEST_CHARS
+    ) {
+      return text("Invalid manifest", 400, cors);
+    }
 
-    // Enforce the per-IP byte budget now that we know the finalized size. If
-    // over budget, abort the multipart upload and delete the slot so nothing
-    // is persisted (the bytes were uploaded as parts but never committed).
+    // Finalize the multipart upload FIRST so R2 can tell us the REAL object
+    // size. The byte budget used to be charged with the client-declared
+    // `payload.size`, which a dishonest client could simply lie about to
+    // bypass the per-IP budget (and corrupt Content-Length on download).
+    const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
+    let actualSize =
+      Number.isFinite(payload.size) && payload.size >= 0 ? payload.size : 0;
+    try {
+      const committed = (await mp.complete(
+        payload.parts.map((p) => ({ partNumber: p.partNumber, etag: p.etag })),
+      )) as { size?: number } | null | undefined;
+      if (committed && typeof committed.size === "number") {
+        actualSize = committed.size;
+      }
+    } catch (e) {
+      return text(`Complete failed: ${e instanceof Error ? e.message : "error"}`, 400, cors);
+    }
+
+    // Enforce the per-IP byte budget with the server-measured size. If over
+    // budget, remove the just-committed object + slot so nothing persists.
     if (chargeBytes) {
-      const within = await chargeBytes(payload.size);
+      const within = await chargeBytes(actualSize);
       if (!within) {
-        try {
-          bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId).abort();
-        } catch {
-          /* ignore */
-        }
+        await bucket.delete(BODY_PREFIX + id);
         await bucket.delete(id + META_SUFFIX);
         return json(
           { error: "byte-budget-exceeded" },
@@ -168,16 +213,8 @@ export async function handleStore(
       }
     }
 
-    const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
-    try {
-      await mp.complete(
-        payload.parts.map((p) => ({ partNumber: p.partNumber, etag: p.etag })),
-      );
-    } catch (e) {
-      return text(`Complete failed: ${e instanceof Error ? e.message : "error"}`, 400, cors);
-    }
     meta.uploaded = true;
-    meta.size = payload.size;
+    meta.size = actualSize;
     meta.manifest = payload.manifest;
     await bucket.put(id + META_SUFFIX, JSON.stringify(meta));
     return json({ ok: true }, 200, cors);
