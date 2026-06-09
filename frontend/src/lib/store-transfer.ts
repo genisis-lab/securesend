@@ -63,6 +63,33 @@ function httpBase(): string {
     .replace(/\/+$/, "");
 }
 
+/**
+ * Translate a raw fetch/stream failure into a user-facing Error. Browsers
+ * reject failed fetches with cryptic TypeErrors (Safari: "Load failed",
+ * Chrome: "Failed to fetch") that mean nothing to users; aborts keep their
+ * "cancelled" semantics so callers can distinguish a user cancel.
+ */
+function friendlyNetworkError(err: unknown): Error {
+  if (err instanceof DOMException && err.name === "AbortError") {
+    return new Error("cancelled");
+  }
+  if (err instanceof TypeError) {
+    return new Error(
+      "Can't reach the SecureSend server. Check your internet connection and try again.",
+    );
+  }
+  return err instanceof Error ? err : new Error("Network request failed");
+}
+
+/** fetch() wrapper that converts low-level network failures into clear errors. */
+async function fetchSafe(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    throw friendlyNetworkError(err);
+  }
+}
+
 function randomTransferId(): string {
   const b = randomBytes(9);
   let s = "";
@@ -105,13 +132,18 @@ export async function uploadStored(opts: {
   const key = await deriveStoredAesKey(linkSecret, salt, passphrase);
 
   // 1. Create a storage slot + R2 multipart upload.
-  const createRes = await fetch(
+  const createRes = await fetchSafe(
     `${httpBase()}/api/store${burn ? "?burn=1" : ""}`,
     { method: "POST", signal },
   );
   if (!createRes.ok) {
     if (createRes.status === 503) {
       throw new Error("Store-and-forward isn't available on this server.");
+    }
+    if (createRes.status === 429) {
+      throw new Error(
+        "You've started too many stored transfers recently. Wait a bit and try again, or use Live (direct) mode.",
+      );
     }
     throw new Error(`Failed to create storage slot (HTTP ${createRes.status})`);
   }
@@ -173,6 +205,13 @@ export async function uploadStored(opts: {
       if (attempt < maxAttempts) {
         await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
       }
+    }
+    // Exhausted retries: surface network failures with an actionable message
+    // instead of the browser's raw "Load failed" / "Failed to fetch".
+    if (lastErr instanceof TypeError) {
+      throw new Error(
+        "Upload interrupted — can't reach the SecureSend server. Check your connection and try again.",
+      );
     }
     throw lastErr instanceof Error ? lastErr : new Error("Part upload failed");
   };
@@ -260,7 +299,7 @@ export async function uploadStored(opts: {
   manifestEnvelope.set(manifestCt, salt.length + manifestIv.length);
 
   // 4. Complete the multipart upload, attaching the encrypted manifest.
-  const completeRes = await fetch(
+  const completeRes = await fetchSafe(
     `${httpBase()}/api/store/${encodeURIComponent(id)}/complete`,
     {
       method: "POST",
@@ -294,20 +333,34 @@ export async function uploadStored(opts: {
     fraction: 1,
   });
 
-  const metaRes = await fetch(
-    `${httpBase()}/api/store/${encodeURIComponent(id)}/meta`,
-  );
-  const expiresAt = metaRes.ok
-    ? ((await metaRes.json()) as { expiresAt: number }).expiresAt
-    : Date.now() + 86400_000;
+  // The upload has already succeeded; the expiry lookup is informational only,
+  // so a network blip here must NOT fail the transfer. Fall back to the
+  // default TTL for display purposes.
+  let expiresAt = Date.now() + 86400_000;
+  try {
+    const metaRes = await fetch(
+      `${httpBase()}/api/store/${encodeURIComponent(id)}/meta`,
+    );
+    if (metaRes.ok) {
+      expiresAt = ((await metaRes.json()) as { expiresAt: number }).expiresAt;
+    }
+  } catch {
+    /* keep fallback */
+  }
 
   return { id, expiresAt };
 }
 
 /** Does a stored transfer exist (and is it still available)? */
 export async function storedExists(id: string): Promise<boolean> {
-  const res = await fetch(`${httpBase()}/api/store/${encodeURIComponent(id)}/meta`);
-  return res.ok;
+  try {
+    const res = await fetch(`${httpBase()}/api/store/${encodeURIComponent(id)}/meta`);
+    return res.ok;
+  } catch {
+    // A network failure isn't "gone"; but for the caller's purposes (can we
+    // proceed with a stored download right now?) the answer is still no.
+    return false;
+  }
 }
 
 /**
@@ -454,7 +507,13 @@ export async function downloadStoredToDisk(opts: {
   const sink = await createFileSink(entry.name, entry.mime);
 
   // Stream the ciphertext body and de-frame as bytes arrive.
-  const blobRes = await fetch(`${httpBase()}/api/store/${encodeURIComponent(id)}`);
+  let blobRes: Response;
+  try {
+    blobRes = await fetchSafe(`${httpBase()}/api/store/${encodeURIComponent(id)}`);
+  } catch (err) {
+    await sink.abort();
+    throw err;
+  }
   if (!blobRes.ok || !blobRes.body) {
     await sink.abort();
     throw new Error(`Download failed (HTTP ${blobRes.status})`);
@@ -497,7 +556,7 @@ export async function downloadStoredToDisk(opts: {
     await streamWithResume(blobRes, id, deframer);
   } catch (err) {
     await sink.abort();
-    throw failed ?? (err instanceof Error ? err : new Error("Download failed"));
+    throw failed ?? friendlyNetworkError(err);
   }
 
   if (!deframer.done) {
@@ -534,7 +593,7 @@ async function streamWithResume(
   for (;;) {
     if (!response) {
       // Re-request the remaining bytes from where we left off.
-      response = await fetch(`${httpBase()}/api/store/${encodeURIComponent(id)}`, {
+      response = await fetchSafe(`${httpBase()}/api/store/${encodeURIComponent(id)}`, {
         headers: { Range: `bytes=${deframer.consumed}-` },
         cache: "no-store",
       });
@@ -561,7 +620,7 @@ async function streamWithResume(
       // retry it as if it were a network blip.
       if (deframer.failed) throw err;
       attempt += 1;
-      if (attempt >= RESUME_MAX_ATTEMPTS) throw err;
+      if (attempt >= RESUME_MAX_ATTEMPTS) throw friendlyNetworkError(err);
       await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
       response = null; // trigger a ranged re-fetch on the next loop
     }
@@ -595,7 +654,7 @@ async function fetchBlobWithResume(
       response = await fetch(url, { headers, cache: "no-store" });
     } catch (err) {
       attempt += 1;
-      if (attempt >= RESUME_MAX_ATTEMPTS) throw err;
+      if (attempt >= RESUME_MAX_ATTEMPTS) throw friendlyNetworkError(err);
       await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
       continue;
     }
@@ -634,7 +693,7 @@ async function fetchBlobWithResume(
       // Stream ended early without an error: loop to resume from `received`.
     } catch (err) {
       attempt += 1;
-      if (attempt >= RESUME_MAX_ATTEMPTS) throw err;
+      if (attempt >= RESUME_MAX_ATTEMPTS) throw friendlyNetworkError(err);
       await new Promise((r) => setTimeout(r, 400 * 2 ** (attempt - 1)));
     }
   }
@@ -665,7 +724,7 @@ async function fetchManifest(
   linkSecret: string,
   passphrase?: string,
 ): Promise<{ key: CryptoKey; manifest: Manifest; burn: boolean }> {
-  const metaRes = await fetch(
+  const metaRes = await fetchSafe(
     `${httpBase()}/api/store/${encodeURIComponent(id)}/meta`,
   );
   if (metaRes.status === 404) throw new Error("This transfer no longer exists.");
