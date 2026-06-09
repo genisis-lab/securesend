@@ -316,8 +316,23 @@ export async function createRoom(signalBaseUrl: string): Promise<string> {
     .replace(/^ws:/, "http:")
     .replace(/^wss:/, "https:")
     .replace(/\/+$/, "");
-  const res = await fetch(`${httpBase}/api/rooms`, { method: "POST" });
+  let res: Response;
+  try {
+    res = await fetch(`${httpBase}/api/rooms`, { method: "POST" });
+  } catch {
+    // Browsers surface network failures as cryptic TypeErrors (Safari:
+    // "Load failed", Chrome: "Failed to fetch"); translate into something
+    // the user can act on.
+    throw new Error(
+      "Can't reach the SecureSend server. Check your internet connection and try again.",
+    );
+  }
   if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(
+        "Too many new transfers right now — wait a moment and try again.",
+      );
+    }
     throw new Error(`Failed to create signaling room (HTTP ${res.status})`);
   }
   const json = (await res.json()) as { roomId: string };
