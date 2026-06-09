@@ -12,6 +12,8 @@
  *     stores `data` payloads.
  *   - Room auto-expires after ROOM_TTL_SECONDS (invite code lifetime) using a
  *     DO alarm. Expired rooms close all sockets and clear state.
+ *   - Expired room ids are TOMBSTONED for 24h so a late connect cannot revive
+ *     an expired invite link with a fresh TTL.
  *   - If a peer disconnects, the other is told `peer-left`. The slot is held
  *     for RECONNECT_GRACE_SECONDS so a refreshing peer can rejoin its role.
  *   - No file bytes ever pass through here; the WebRTC DataChannel is P2P.
@@ -46,6 +48,15 @@ export class SignalingRoom implements DurableObject {
   /** Absolute epoch-ms time at which this room expires (set on first connect). */
   private expiresAt = 0;
 
+  /**
+   * True once the room's TTL has elapsed. Persisted as a tombstone in storage
+   * so it survives DO eviction. While set, ALL connection attempts are refused
+   * — otherwise a connect arriving after the expiry alarm (which wipes
+   * storage) would re-arm a brand-new TTL on the same room id, resurrecting an
+   * expired invite link.
+   */
+  private expired = false;
+
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
@@ -53,6 +64,12 @@ export class SignalingRoom implements DurableObject {
     // Restore expiry state if the DO was evicted and revived mid-room. The
     // in-memory peer sockets cannot survive eviction, but the TTL must.
     this.state.blockConcurrencyWhile(async () => {
+      const tombstoned = await this.state.storage.get<boolean>("expired");
+      if (tombstoned) {
+        this.expired = true;
+        this.ttlScheduled = true; // never re-arm a TTL for a dead room
+        return;
+      }
       const saved = await this.state.storage.get<number>("expiresAt");
       if (typeof saved === "number" && saved > 0) {
         this.expiresAt = saved;
@@ -69,6 +86,13 @@ export class SignalingRoom implements DurableObject {
   /** Hard bounds for a client-requested room TTL (defense against abuse). */
   private static readonly MIN_TTL_SECONDS = 60; // 1 minute
   private static readonly MAX_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+
+  /**
+   * How long an expired room id keeps refusing connections before its
+   * tombstone is swept and storage returns to fully empty. Any realistic
+   * "stale link clicked late" window is far shorter than this.
+   */
+  private static readonly TOMBSTONE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Resolve the effective room TTL. The initiator MAY request a custom TTL via
@@ -110,6 +134,19 @@ export class SignalingRoom implements DurableObject {
     requestedTtl: number | null,
   ): Promise<void> {
     socket.accept();
+
+    // Refuse connections to rooms that have already expired — either tombstoned
+    // by the alarm, or past their deadline while the alarm hasn't fired yet.
+    // Without this, the TTL-scheduling block below would happily re-arm a
+    // fresh TTL on a dead room id.
+    if (this.expired || (this.expiresAt > 0 && Date.now() >= this.expiresAt)) {
+      this.sendRaw(
+        socket,
+        JSON.stringify({ kind: "room-expired" } satisfies SignalEnvelope),
+      );
+      socket.close(4002, "room-expired");
+      return;
+    }
 
     // Schedule room expiry on the first ever connection (the initiator). The
     // TTL is fixed for the room's lifetime once set, so only the first peer's
@@ -252,8 +289,22 @@ export class SignalingRoom implements DurableObject {
     // proactively destroy here because a reconnect may arrive within grace.
   }
 
-  /** DO alarm: room TTL expired. Close everything and wipe state. */
+  /**
+   * DO alarm — fires twice per room:
+   *   Phase 1 (TTL elapsed): close everything, wipe state, and leave a
+   *   persisted tombstone so a late connect cannot revive the room id with a
+   *   fresh TTL. Schedules phase 2.
+   *   Phase 2 (tombstone window over): sweep the tombstone so the DO's storage
+   *   returns to fully empty (no per-room residue).
+   */
   async alarm(): Promise<void> {
+    if (this.expired) {
+      // Phase 2: tombstone window over — remove the marker entirely.
+      await this.state.storage.deleteAll();
+      return;
+    }
+
+    // Phase 1: room TTL expired. Close everything and wipe state.
     for (const slot of this.peers.values()) {
       this.sendRaw(
         slot.socket,
@@ -268,7 +319,12 @@ export class SignalingRoom implements DurableObject {
     this.peers.clear();
     this.reservedRoles.clear();
     await this.state.storage.deleteAll();
-    this.ttlScheduled = false;
+
+    // Tombstone the room id (persisted so it survives DO eviction) and keep
+    // ttlScheduled true so accept() can never re-arm a TTL for this room.
+    this.expired = true;
+    await this.state.storage.put("expired", true);
+    await this.state.storage.setAlarm(Date.now() + SignalingRoom.TOMBSTONE_MS);
   }
 
   // --- helpers ---------------------------------------------------------------
