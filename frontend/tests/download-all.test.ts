@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blobToBytes } from "../src/lib/chunker";
-import { buildZipFile } from "../src/lib/download";
+import { buildZipFile, exceedsZipLimits } from "../src/lib/download";
 
 interface ZipEntryView {
   name: string;
@@ -65,5 +65,21 @@ describe("buildZipFile", () => {
     expect(new TextDecoder().decode(entries[0].data)).toBe("alpha");
     expect(new TextDecoder().decode(entries[1].data)).toBe("beta");
     expect([...entries[2].data]).toEqual([1, 2, 3]);
+  });
+});
+
+describe("exceedsZipLimits", () => {
+  it("accepts ordinary bundles", () => {
+    expect(exceedsZipLimits([1024, 2048, 4096])).toBe(false);
+    expect(exceedsZipLimits([])).toBe(false);
+  });
+
+  it("rejects bundles whose total size would overflow 32-bit ZIP fields", () => {
+    // 3 GiB + 2 GiB = 5 GiB > 4 GiB cap.
+    expect(exceedsZipLimits([3 * 1024 ** 3, 2 * 1024 ** 3])).toBe(true);
+  });
+
+  it("rejects bundles with more than 65,535 entries", () => {
+    expect(exceedsZipLimits(new Array(70000).fill(1))).toBe(true);
   });
 });
