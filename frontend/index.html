@@ -28,6 +28,34 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.neil27.workers.dev wss://securesend-signal.neil27.workers.dev ws://localhost:8787 http://localhost:8787; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     />
     <title>SecureSend — Encrypted P2P File Transfer</title>
+
+    <!-- iOS / mobile web-app (native Add-to-Home-Screen experience) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="SecureSend" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+    <!-- Open Graph (social sharing); relative image URL — no fixed production domain -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SecureSend" />
+    <meta property="og:title" content="SecureSend — Encrypted P2P File Transfer" />
+    <meta
+      property="og:description"
+      content="End-to-end encrypted, peer-to-peer file transfer. Files never touch a server — share securely, straight from your browser."
+    />
+    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SecureSend — Encrypted P2P File Transfer" />
+    <meta
+      name="twitter:description"
+      content="End-to-end encrypted, peer-to-peer file transfer. Files never touch a server — share securely, straight from your browser."
+    />
+    <meta name="twitter:image" content="/icons/icon-512.png" />
   </head>
   <body>
     <div id="root"></div>
