@@ -79,6 +79,9 @@ class FakeR2 {
         }
         self.objects.set(key, { body: merged, text: "" });
         mp.completed = true;
+        // Real R2 returns the committed object; handleStore uses its `size`
+        // so the byte budget can't be gamed by a lying client-declared size.
+        return { size: total };
       },
       abort() {
         const mp = self.multiparts.get(uploadId);
@@ -345,5 +348,58 @@ describe("handleStore routing", () => {
       async () => true,
     ))!;
     expect(complete.status).toBe(200);
+  });
+
+  it("charges the byte budget with the server-measured size, not the declared one", async () => {
+    const create = (await handleStore(req("POST", "/api/store"), env, CORS))!;
+    const { id, token } = (await create.json()) as { id: string; token: string };
+    const part = (await handleStore(
+      req("PUT", `/api/store/${id}/parts/1`, { token, body: new Uint8Array([1, 2, 3, 4]) }),
+      env,
+      CORS,
+    ))!;
+    const partBody = (await part.json()) as { partNumber: number; etag: string };
+
+    let charged = -1;
+    const complete = (await handleStore(
+      req("POST", `/api/store/${id}/complete`, {
+        token,
+        // Dishonestly declare 1 byte; the committed object is really 4 bytes.
+        body: JSON.stringify({ parts: [partBody], manifest: "m", size: 1 }),
+      }),
+      env,
+      CORS,
+      async (n) => {
+        charged = n;
+        return true;
+      },
+    ))!;
+    expect(complete.status).toBe(200);
+    expect(charged).toBe(4);
+
+    // Meta (and therefore Content-Length on download) uses the real size too.
+    const meta = (await handleStore(req("GET", `/api/store/${id}/meta`), env, CORS))!;
+    expect(((await meta.json()) as { size: number }).size).toBe(4);
+  });
+
+  it("rejects an oversized manifest (400)", async () => {
+    const create = (await handleStore(req("POST", "/api/store"), env, CORS))!;
+    const { id, token } = (await create.json()) as { id: string; token: string };
+    const part = (await handleStore(
+      req("PUT", `/api/store/${id}/parts/1`, { token, body: new Uint8Array([1, 2, 3, 4]) }),
+      env,
+      CORS,
+    ))!;
+    const partBody = (await part.json()) as { partNumber: number; etag: string };
+
+    const complete = (await handleStore(
+      req("POST", `/api/store/${id}/complete`, {
+        token,
+        body: JSON.stringify({ parts: [partBody], manifest: "x".repeat(1_000_001), size: 4 }),
+      }),
+      env,
+      CORS,
+    ))!;
+    expect(complete.status).toBe(400);
   });
 });

@@ -106,6 +106,24 @@ export interface BundleItem {
 
 export type SaveAllResult = "shared" | "downloaded" | "cancelled";
 
+/** Classic (non-ZIP64) ZIP hard limits: u16 entry count, u32 sizes/offsets. */
+const ZIP_MAX_ENTRIES = 0xffff;
+const ZIP_MAX_TOTAL_BYTES = 0xffffffff;
+/** Generous per-entry bound for local+central headers and the entry name. */
+const ZIP_ENTRY_OVERHEAD = 30 + 46 + 512;
+
+/**
+ * Would a bundle of these file sizes overflow the classic ZIP format? Our
+ * writer has no ZIP64 support, so past 4 GiB total (or 65,535 entries) the
+ * u32/u16 header fields would silently wrap and produce a CORRUPT archive.
+ * Pure + exported for unit testing.
+ */
+export function exceedsZipLimits(sizes: number[]): boolean {
+  if (sizes.length > ZIP_MAX_ENTRIES) return true;
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  return total + sizes.length * ZIP_ENTRY_OVERHEAD + 22 > ZIP_MAX_TOTAL_BYTES;
+}
+
 interface ZipSourceEntry {
   name: string;
   data: Uint8Array;
@@ -259,6 +277,14 @@ export async function buildZipFile(
   items: BundleItem[],
   zipName: string,
 ): Promise<File> {
+  // Defense-in-depth: refuse to emit an archive that would overflow the
+  // classic ZIP header fields (callers should check exceedsZipLimits first).
+  if (exceedsZipLimits(items.map((item) => item.blob.size))) {
+    throw new Error(
+      "This bundle is too large for a single ZIP (4 GiB / 65,535 file limit).",
+    );
+  }
+
   const used = new Map<string, number>();
   const entries: ZipSourceEntry[] = [];
 
@@ -282,8 +308,23 @@ export async function buildZipFile(
  * Save several received files as one ZIP. Uses the native share sheet where it
  * supports files (notably useful on iOS/iPadOS), with a normal download as the
  * universal fallback.
+ *
+ * Bundles past the classic ZIP format's limits (4 GiB total / 65,535 entries)
+ * can't be archived by our writer, so they're saved as individual downloads
+ * instead of failing — or worse, silently producing a corrupt ZIP.
  */
 export async function saveAllAsZip(items: BundleItem[]): Promise<SaveAllResult> {
+  if (exceedsZipLimits(items.map((item) => item.blob.size))) {
+    for (let i = 0; i < items.length; i += 1) {
+      downloadBlob(items[i].blob, items[i].name);
+      // Small gap so browsers don't swallow back-to-back downloads.
+      if (i < items.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    }
+    return "downloaded";
+  }
+
   const zip = await buildZipFile(items, zipArchiveName());
   if (canShareFile(zip)) {
     const result = await shareFile(zip);

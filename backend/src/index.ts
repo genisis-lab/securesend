@@ -98,13 +98,15 @@ export function isOriginAllowed(origin: string | null, allowed: string): boolean
     .includes(origin);
 }
 
-/** Best-effort client IP for rate-limit bucketing. */
+/**
+ * Client IP for rate-limit bucketing. Cloudflare sets CF-Connecting-IP at the
+ * edge and clients cannot forge it. We deliberately do NOT fall back to
+ * X-Forwarded-For: that header is attacker-controlled, so honoring it would
+ * let a client mint a fresh rate-limit bucket per request and bypass every
+ * budget. (Local dev without the CF header simply shares one bucket.)
+ */
 function clientKey(request: Request): string {
-  return (
-    request.headers.get("CF-Connecting-IP") ||
-    request.headers.get("X-Forwarded-For") ||
-    "anonymous"
-  );
+  return request.headers.get("CF-Connecting-IP") || "anonymous";
 }
 
 /** Check the per-IP rate limit via the RateLimiter Durable Object. */
