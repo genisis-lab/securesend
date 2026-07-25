@@ -1,18 +1,25 @@
 /** config.ts — runtime configuration sourced from Vite env vars. */
 
 const PRODUCTION_SIGNAL_URL = "wss://securesend-signal.neil27.workers.dev";
+const PRODUCTION_APP_HOSTS = new Set([
+  "send.builtwai.com",
+  "securesend.pages.dev",
+]);
 
 function fromEnv(key: string, fallback: string): string {
   const v = import.meta.env[key as keyof ImportMetaEnv];
   return typeof v === "string" && v.length > 0 ? v : fallback;
 }
 
-function defaultSignalUrl(): string {
-  if (typeof location !== "undefined") {
-    const host = location.hostname;
-    if (host === "securesend.pages.dev" || host.endsWith(".securesend.pages.dev")) {
-      return PRODUCTION_SIGNAL_URL;
-    }
+export function defaultSignalUrl(
+  hostname = typeof location !== "undefined" ? location.hostname : "",
+): string {
+  const host = hostname.toLowerCase();
+  if (
+    PRODUCTION_APP_HOSTS.has(host) ||
+    host.endsWith(".securesend.pages.dev")
+  ) {
+    return PRODUCTION_SIGNAL_URL;
   }
   return "ws://localhost:8787";
 }
