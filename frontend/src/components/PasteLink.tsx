@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { parseInviteFromHash } from "../lib/session";
+import { ArrowRight } from "@phosphor-icons/react/ArrowRight";
+import { LinkSimple } from "@phosphor-icons/react/LinkSimple";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   /** Navigate to a received-invite route once a valid link is parsed. */
@@ -33,12 +36,17 @@ export function PasteLink({ onOpen }: Props) {
   };
 
   return (
-    <div className="card">
-      <h2 className="card__title">Have an invite link?</h2>
-      <p className="card__hint">
-        Paste a SecureSend link below to connect to the sender and download
-        their file. The transfer is end-to-end encrypted and peer-to-peer.
-      </p>
+    <div className="card paste-card">
+      <div className="paste-card__intro">
+        <span className="paste-card__icon"><AppIcon icon={LinkSimple} size={22} weight="duotone" /></span>
+        <div>
+          <h2 className="card__title">Have an invite link?</h2>
+          <p className="card__hint">
+            Paste a SecureSend link below to connect to the sender and download
+            their file. The transfer is end-to-end encrypted and peer-to-peer.
+          </p>
+        </div>
+      </div>
       <div className="invite-box">
         <input
           className="input"
@@ -56,7 +64,7 @@ export function PasteLink({ onOpen }: Props) {
           aria-label="Invite link"
         />
         <button className="btn" onClick={open} disabled={value.trim().length === 0}>
-          Open
+          Open <AppIcon icon={ArrowRight} size={17} weight="bold" />
         </button>
       </div>
       {error && <p className="error-text u-mt-8">{error}</p>}

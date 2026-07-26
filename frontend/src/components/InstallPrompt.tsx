@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 import type { ManualGuide } from "../lib/platform";
+import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
+import { DeviceMobile } from "@phosphor-icons/react/DeviceMobile";
+import { DotsThreeVertical } from "@phosphor-icons/react/DotsThreeVertical";
+import { PlusCircle } from "@phosphor-icons/react/PlusCircle";
+import { ShareFat } from "@phosphor-icons/react/ShareFat";
+import { X } from "@phosphor-icons/react/X";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   /** Whether the banner should be shown at all (visibility rules live in the hook). */
@@ -48,17 +55,21 @@ export function InstallPrompt({
   if (!visible) return null;
 
   const headline = isIosNeedsSafari
-    ? "📲 Want SecureSend on your home screen? Open this page in Safari to install it."
-    : "📲 Install SecureSend for quick, full-screen access — it works like a native app.";
+    ? "Want SecureSend on your home screen? Open this page in Safari to install it."
+    : "Install SecureSend for quick, full-screen access — it works like a native app.";
 
   return (
     <div className="install-banner install-banner--column" role="region" aria-label="Install SecureSend">
       <div className="install-banner__row">
-        <span>{headline}</span>
+        <span className="install-banner__message">
+          <AppIcon icon={DeviceMobile} size={20} weight="duotone" />
+          {headline}
+        </span>
         <div className="row u-gap-8">
           {canPromptInstall ? (
             <button className="btn" onClick={onInstall}>
-              Install
+              <AppIcon icon={ArrowDown} size={17} weight="bold" />
+              <span>Install</span>
             </button>
           ) : manualGuide ? (
             <button className="btn" onClick={() => setShowSteps((v) => !v)}>
@@ -66,7 +77,7 @@ export function InstallPrompt({
             </button>
           ) : null}
           <button className="btn btn--ghost" onClick={onDismiss} aria-label="Dismiss">
-            ✕
+            <AppIcon icon={X} size={17} weight="bold" />
           </button>
         </div>
       </div>
@@ -83,7 +94,7 @@ function InstallSteps({ guide }: { guide: NonNullable<ManualGuide> }) {
     return (
       <ol className="install-steps">
         <li>
-          Tap the <strong>Share</strong> button <span aria-hidden>⬆️</span> in
+          Tap the <strong>Share</strong> button <AppIcon icon={ShareFat} size={17} /> in
           Safari's toolbar.
         </li>
         <li>
@@ -99,7 +110,7 @@ function InstallSteps({ guide }: { guide: NonNullable<ManualGuide> }) {
     return (
       <ol className="install-steps">
         <li>
-          Tap the <strong>⋮ menu</strong> in Firefox's toolbar.
+          Tap the <strong><AppIcon icon={DotsThreeVertical} size={17} /> menu</strong> in Firefox's toolbar.
         </li>
         <li>
           Tap <strong>Install</strong> (or <strong>Add to Home screen</strong>).
@@ -114,7 +125,7 @@ function InstallSteps({ guide }: { guide: NonNullable<ManualGuide> }) {
     return (
       <ol className="install-steps">
         <li>
-          Tap the <strong>⋮ menu</strong> in your browser's toolbar.
+          Tap the <strong><AppIcon icon={DotsThreeVertical} size={17} /> menu</strong> in your browser's toolbar.
         </li>
         <li>
           Tap <strong>Install app</strong> (or <strong>Add to Home screen</strong>).
@@ -130,8 +141,8 @@ function InstallSteps({ guide }: { guide: NonNullable<ManualGuide> }) {
       <ol className="install-steps">
         <li>
           Look for the <strong>install icon</strong>{" "}
-          <span aria-hidden>⊕</span> at the right edge of the address bar (or
-          open the <strong>⋮ menu</strong>).
+          <AppIcon icon={PlusCircle} size={17} /> at the right edge of the address bar (or
+          open the <strong><AppIcon icon={DotsThreeVertical} size={17} /> menu</strong>).
         </li>
         <li>
           Click it and choose <strong>Install</strong> (look for{" "}

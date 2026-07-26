@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from "react";
+import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   /** Receives one or more selected files. */
@@ -42,10 +44,11 @@ export function FileDropzone({ onFiles, disabled }: Props) {
         if (!disabled) handleFiles(e.dataTransfer.files);
       }}
     >
-      <div className="dropzone__icon">📁</div>
-      <div className="dropzone__text">
-        Drag &amp; drop files here, or click to browse
+      <div className="dropzone__icon">
+        <AppIcon icon={FolderOpen} size={34} weight="duotone" />
       </div>
+      <div className="dropzone__title">Drag &amp; drop files here</div>
+      <div className="dropzone__text">or click to browse</div>
       <input
         ref={inputRef}
         type="file"

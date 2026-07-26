@@ -45,7 +45,7 @@ export function HowItWorks() {
       </ol>
 
       <div className="how__callout">
-        <span aria-hidden>⏳</span>
+        <AppIcon icon={Hourglass} size={21} weight="duotone" />
         <div>
           <strong>Two ways to send.</strong> With <strong>Live</strong> (the default,
           most private) the file goes straight from your device to theirs in real
@@ -59,12 +59,18 @@ export function HowItWorks() {
       </div>
 
       <p className="how__privacy">
-        🔒 Your file is protected with AES-256 encryption using a key created in
-        your browser. With Live transfers the key is exchanged directly between the
-        two browsers (ECDH); with Send-for-later it comes from the secret in your
-        link. Either way the key is never sent to us or stored anywhere — we can't
-        read your files.
+        <AppIcon icon={ShieldCheck} size={19} weight="duotone" />
+        <span>
+          Your file is protected with AES-256 encryption using a key created in
+          your browser. With Live transfers the key is exchanged directly between the
+          two browsers (ECDH); with Send-for-later it comes from the secret in your
+          link. Either way the key is never sent to us or stored anywhere — we can't
+          read your files.
+        </span>
       </p>
     </section>
   );
 }
+import { Hourglass } from "@phosphor-icons/react/Hourglass";
+import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
+import { AppIcon } from "./AppIcon";
