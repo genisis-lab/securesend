@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   base64UrlEncode,
   generateRoomId,
@@ -95,5 +96,16 @@ describe("isOriginAllowed (WebSocket upgrade gate)", () => {
     expect(isOriginAllowed("https://evil.test", allowed)).toBe(false);
     expect(isOriginAllowed(null, allowed)).toBe(false); // non-browser client, no Origin
     expect(isOriginAllowed("", allowed)).toBe(false);
+  });
+});
+
+describe("production origin policy", () => {
+  it("keeps both the custom domain and Pages fallback in the Worker allowlist", () => {
+    const wranglerConfig = readFileSync(
+      new URL("../wrangler.toml", import.meta.url),
+      "utf8",
+    );
+    expect(wranglerConfig).toContain("https://send.builtwai.com");
+    expect(wranglerConfig).toContain("https://securesend.pages.dev");
   });
 });
