@@ -6,6 +6,15 @@ import { TransferProgressView } from "./TransferProgress";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { formatBytes, formatEta } from "../lib/format";
 import { textToFile, LARGE_FILE_WARN_BYTES } from "../lib/download";
+import { Archive } from "@phosphor-icons/react/Archive";
+import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
+import { Lightning } from "@phosphor-icons/react/Lightning";
+import { LockKey } from "@phosphor-icons/react/LockKey";
+import { NotePencil } from "@phosphor-icons/react/NotePencil";
+import { Paperclip } from "@phosphor-icons/react/Paperclip";
+import { Package } from "@phosphor-icons/react/Package";
+import { Warning } from "@phosphor-icons/react/Warning";
+import { AppIcon } from "./AppIcon";
 
 interface Props {
   state: SessionState | null;
@@ -194,7 +203,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
   if (phase === "stored" && state?.inviteUrl) {
     return (
       <div className="card">
-        <div className="success-icon">📦</div>
+        <div className="success-icon"><AppIcon icon={Package} size={42} weight="duotone" /></div>
         <h2 className="card__title u-center">
           Ready to share
         </h2>
@@ -226,7 +235,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
     const count = state.itemCount;
     return (
       <div className="card">
-        <div className="success-icon">✅</div>
+        <div className="success-icon"><AppIcon icon={CheckCircle} size={44} weight="duotone" /></div>
         <h2 className="card__title u-center">
           {state.delivered ? "Delivered securely" : "Sent securely"}
         </h2>
@@ -303,7 +312,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             aria-selected={mode === "files"}
             onClick={() => setMode("files")}
           >
-            📎 Files
+            <AppIcon icon={Paperclip} size={18} weight="bold" /> Files
           </button>
           <button
             className={`tab ${mode === "text" ? "tab--active" : ""}`}
@@ -311,7 +320,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             aria-selected={mode === "text"}
             onClick={() => setMode("text")}
           >
-            📝 Text
+            <AppIcon icon={NotePencil} size={18} weight="bold" /> Text
           </button>
         </div>
       )}
@@ -379,7 +388,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
 
           {tooLarge && (
             <div className="warn">
-              <span>⚠️</span>
+              <AppIcon icon={Warning} />
               <span>
                 That's a large amount of data ({formatBytes(totalSize)}). The
                 recipient's device assembles the file in memory, so very large
@@ -418,7 +427,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
               onClick={() => setDeliveryMode("live")}
               aria-pressed={deliveryMode === "live"}
             >
-              <div className="mode-option__title">⚡ Live (most private)</div>
+              <div className="mode-option__title">
+                <AppIcon icon={Lightning} size={19} weight="fill" />
+                Live <span className="mode-option__tag">Most private</span>
+              </div>
               <div className="mode-option__desc">
                 Sent directly device-to-device. Nothing is ever stored on a
                 server. You and the recipient must both keep the app open at the
@@ -431,7 +443,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
               onClick={() => setDeliveryMode("store")}
               aria-pressed={deliveryMode === "store"}
             >
-              <div className="mode-option__title">📦 Send for later</div>
+              <div className="mode-option__title">
+                <AppIcon icon={Archive} size={19} weight="duotone" />
+                Send for later
+              </div>
               <div className="mode-option__desc">
                 Encrypted in your browser, then parked on the server so your
                 recipient can download anytime — you can close the app once it
@@ -539,7 +554,7 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             onClick={handleCreate}
             disabled={!canCreate}
           >
-            🔒 Create secure invite
+            <AppIcon icon={LockKey} size={18} weight="bold" /> Create secure invite
           </button>
         </>
       )}

@@ -19,6 +19,9 @@ import { InAppBrowserNotice } from "./components/InAppBrowserNotice";
 import { UpdateToast } from "./components/UpdateToast";
 import { Hero } from "./components/Hero";
 import { HowItWorks } from "./components/HowItWorks";
+import { AppIcon } from "./components/AppIcon";
+import { Broadcast } from "@phosphor-icons/react/Broadcast";
+import { Warning } from "@phosphor-icons/react/Warning";
 
 type Route =
   | { kind: "home" }
@@ -132,87 +135,91 @@ export function App() {
     typeof window !== "undefined" && window.isSecureContext;
 
   return (
-    <div className="app">
-      <Hero
-        onHome={goHome}
-        isHome={route.kind === "home"}
-        showInstall={install.showHeaderButton}
-        justInstalled={install.justInstalled}
-        onInstall={() => {
-          install.requestShow();
-          void install.promptInstall();
-        }}
-      />
+    <div className={`app app--${route.kind}`}>
+      <div className="app__shell">
+        <Hero
+          onHome={goHome}
+          isHome={route.kind === "home"}
+          showInstall={install.showHeaderButton}
+          justInstalled={install.justInstalled}
+          onInstall={() => {
+            install.requestShow();
+            void install.promptInstall();
+          }}
+        />
 
-      {!secureContext && (
-        <div className="warn u-mt-16">
-          <span>⚠️</span>
-          <span>
-            This app requires a secure context (HTTPS). WebRTC and Web Crypto are
-            unavailable over plain HTTP except on localhost.
-          </span>
-        </div>
-      )}
+        <main className="app__workspace">
+          {!secureContext && (
+            <div className="warn">
+              <AppIcon icon={Warning} />
+              <span>
+                This app requires a secure context (HTTPS). WebRTC and Web Crypto are
+                unavailable over plain HTTP except on localhost.
+              </span>
+            </div>
+          )}
 
-      {!online && (
-        <div className="warn u-mt-16" role="status">
-          <span>📡</span>
-          <span>
-            You're offline. SecureSend needs a connection to create invites,
-            signal peers, and fetch stored transfers. We'll reconnect
-            automatically when you're back online.
-          </span>
-        </div>
-      )}
+          {!online && (
+            <div className="warn" role="status">
+              <AppIcon icon={Broadcast} />
+              <span>
+                You're offline. SecureSend needs a connection to create invites,
+                signal peers, and fetch stored transfers. We'll reconnect
+                automatically when you're back online.
+              </span>
+            </div>
+          )}
 
-      <InstallPrompt
-        visible={install.visible && online}
-        canPromptInstall={install.canPromptInstall}
-        manualGuide={install.manualGuide}
-        isIosNeedsSafari={install.isIosNeedsSafari}
-        autoExpandSteps={install.autoExpandSteps}
-        onInstall={install.promptInstall}
-        onDismiss={install.dismiss}
-      />
-
-      {state?.reconnecting && (
-        <div className="reconnect-banner">
-          <span className="dot dot--live" />
-          <span>Reconnecting… keep this tab open. Your transfer will resume automatically.</span>
-        </div>
-      )}
-
-      {route.kind === "home" ? (
-        <>
-          <SenderPanel
-            state={state}
-            onStart={startSend}
-            onCancel={cancel}
-            onReset={goHome}
-            initialText={sharedText}
-            initialFiles={sharedFiles}
+          <InstallPrompt
+            visible={install.visible && online}
+            canPromptInstall={install.canPromptInstall}
+            manualGuide={install.manualGuide}
+            isIosNeedsSafari={install.isIosNeedsSafari}
+            autoExpandSteps={install.autoExpandSteps}
+            onInstall={install.promptInstall}
+            onDismiss={install.dismiss}
           />
-          <PasteLink onOpen={openPastedLink} />
-        </>
-      ) : (
-        <>
-          <InAppBrowserNotice />
-          <ReceiverPanel
-            state={state}
-            mode={route.mode}
-            roomId={route.roomId}
-            linkSecret={route.linkSecret}
-            requiresPassphrase={route.requiresPassphrase}
-            onJoin={startReceive}
-            onStoreJoin={startStoreReceive}
-            onDownloadToDisk={downloadToDisk}
-            onChooseLiveSave={chooseLiveSaveLocation}
-            onSkipLiveSave={skipLiveSaveLocation}
-            onSaved={confirmSaved}
-            onReset={goHome}
-          />
-        </>
-      )}
+
+          {state?.reconnecting && (
+            <div className="reconnect-banner">
+              <span className="dot dot--live" />
+              <span>Reconnecting… keep this tab open. Your transfer will resume automatically.</span>
+            </div>
+          )}
+
+          {route.kind === "home" ? (
+            <>
+              <SenderPanel
+                state={state}
+                onStart={startSend}
+                onCancel={cancel}
+                onReset={goHome}
+                initialText={sharedText}
+                initialFiles={sharedFiles}
+              />
+              <PasteLink onOpen={openPastedLink} />
+            </>
+          ) : (
+            <>
+              <InAppBrowserNotice />
+              <ReceiverPanel
+                state={state}
+                mode={route.mode}
+                roomId={route.roomId}
+                linkSecret={route.linkSecret}
+                requiresPassphrase={route.requiresPassphrase}
+                onJoin={startReceive}
+                onStoreJoin={startStoreReceive}
+                onDownloadToDisk={downloadToDisk}
+                onChooseLiveSave={chooseLiveSaveLocation}
+                onSkipLiveSave={skipLiveSaveLocation}
+                onSaved={confirmSaved}
+                onReset={goHome}
+              />
+            </>
+          )}
+        </main>
+      </div>
 
       <HowItWorks />
 
