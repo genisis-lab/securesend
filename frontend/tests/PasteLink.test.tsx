@@ -38,6 +38,30 @@ function click(el: Element | null) {
 }
 
 describe("<PasteLink>", () => {
+  it("shows the production custom-domain invite format", () => {
+    render(<PasteLink onOpen={vi.fn()} />);
+
+    expect(
+      container.querySelector<HTMLInputElement>('input[aria-label="Invite link"]')
+        ?.placeholder,
+    ).toBe("https://send.builtwai.com/#/r/…");
+  });
+
+  it("opens a valid custom-domain invite without changing its fragment", () => {
+    const onOpen = vi.fn();
+    render(<PasteLink onOpen={onOpen} />);
+
+    change(
+      container.querySelector<HTMLInputElement>('input[aria-label="Invite link"]')!,
+      "https://send.builtwai.com/#/r/example-room/k/example-secret",
+    );
+    click(container.querySelector("button"));
+
+    expect(onOpen).toHaveBeenCalledWith(
+      "#/r/example-room/k/example-secret",
+    );
+  });
+
   it("warns when an invite link is missing its secret key fragment", () => {
     const onOpen = vi.fn();
     render(<PasteLink onOpen={onOpen} />);
