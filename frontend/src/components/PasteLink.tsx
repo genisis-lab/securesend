@@ -44,7 +44,7 @@ export function PasteLink({ onOpen }: Props) {
           className="input"
           type="text"
           inputMode="url"
-          placeholder="https://your-app.pages.dev/#/r/…"
+          placeholder="https://send.builtwai.com/#/r/…"
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
