@@ -14,7 +14,7 @@
 
 SecureSend lets you send files directly from one browser to another, with end-to-end encryption handled locally in the browser. It supports two transfer modes:
 
-- **Live direct transfer:** both people are online at the same time and encrypted chunks move over a WebRTC DataChannel.
+- **Live transfer:** both people are online at the same time and encrypted chunks move between their browsers over a WebRTC DataChannel. SecureSend does not store a live-transfer copy.
 - **Send for later:** the sender uploads only client-side-encrypted ciphertext to Cloudflare R2, then the recipient downloads and decrypts it later. The server never receives the decryption key.
 
 Files, filenames, metadata, and keys are encrypted client-side. The backend is used for signaling, rate limiting, optional TURN configuration, and optional encrypted blob storage — never plaintext file access.

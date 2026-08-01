@@ -28,7 +28,7 @@ export default defineConfig({
         name: "SecureSend — Encrypted P2P File Transfer",
         short_name: "SecureSend",
         description:
-          "End-to-end encrypted, peer-to-peer file transfer. Files never touch a server.",
+          "End-to-end encrypted file transfer. Send live peer-to-peer, or store an encrypted copy temporarily for recipients who are offline.",
         lang: "en",
         dir: "ltr",
         categories: ["utilities", "productivity", "security"],
