@@ -225,10 +225,9 @@ export function App() {
 
       <footer className="footer">
         <p>
-          End-to-end encrypted file transfer. Secure by default — files are sent
-          directly browser-to-browser and never stored on a server, unless you
-          choose "Send for later," where only an encrypted copy we can't read is
-          stored briefly and then auto-deleted.
+          End-to-end encrypted file transfer. Live mode sends encrypted data between
+          browsers without storing a copy. Send for later keeps only an encrypted
+          copy briefly, then auto-deletes it.
         </p>
       </footer>
 

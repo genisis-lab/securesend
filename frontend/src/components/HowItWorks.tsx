@@ -48,13 +48,14 @@ export function HowItWorks() {
         <AppIcon icon={Hourglass} size={21} weight="duotone" />
         <div>
           <strong>Two ways to send.</strong> With <strong>Live</strong> (the default,
-          most private) the file goes straight from your device to theirs in real
-          time — nothing is ever stored on a server, but you both need the app open
-          at the same time, so keep this tab open until it finishes. With{" "}
+          most private) the encrypted file goes between your browsers in real time
+          — SecureSend doesn't save a copy, but you both need the app open at the
+          same time, so keep this tab open until it finishes. With{" "}
           <strong>Send for later</strong> the file is encrypted in your browser and
-          parked on the server so your friend can grab it whenever — you can close
-          the app once it uploads. Either way the server only ever sees scrambled
-          data it can't read, and stored copies auto-delete when the link expires.
+          stored temporarily in encrypted form so your friend can grab it whenever
+          — you can close the app once it uploads. Either way, SecureSend never
+          receives plaintext files or decryption keys, and stored copies auto-delete
+          when the link expires.
         </div>
       </div>
 
