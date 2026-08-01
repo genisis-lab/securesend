@@ -179,8 +179,12 @@ function sanitizeEntryName(name: string): string {
     .split("/")
     .filter(Boolean)
     .pop() ?? "";
-  const stripped = basename
-    .replace(/[\x00-\x1f\x7f]/g, "")
+  const stripped = Array.from(basename)
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code > 0x1f && code !== 0x7f;
+    })
+    .join("")
     .replace(/^\.+/, "")
     .trim();
   return stripped || "file";

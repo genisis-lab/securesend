@@ -9,8 +9,9 @@
  *   3. Upgrade `GET /api/rooms/:id/ws` requests to WebSocket and hand them to
  *      the matching SignalingRoom Durable Object.
  *
- * The Worker never touches file data, never sees encryption keys, and never
- * persists anything beyond ephemeral room coordination state in the DO.
+ * The Worker never sees plaintext file data or encryption keys. In optional
+ * store-and-forward mode it handles only opaque ciphertext, while live mode
+ * persists nothing beyond ephemeral room coordination state in the DO.
  */
 
 import { SignalingRoom } from "./room";

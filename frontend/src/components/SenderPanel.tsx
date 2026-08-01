@@ -299,9 +299,9 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
       <h2 className="card__title">Send files or text</h2>
       <p className="card__hint">
         Everything is encrypted in your browser before it leaves your device.
-        By default it's sent directly to your recipient and never stored on a
-        server — or choose <strong>Send for later</strong> below to park an
-        encrypted copy so they can grab it anytime.
+        By default it's sent live between browsers and SecureSend doesn't store a
+        copy — or choose <strong>Send for later</strong> below to keep an encrypted
+        copy available for your recipient.
       </p>
 
       {!started && (
@@ -432,9 +432,8 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
                 Live <span className="mode-option__tag">Most private</span>
               </div>
               <div className="mode-option__desc">
-                Sent directly device-to-device. Nothing is ever stored on a
-                server. You and the recipient must both keep the app open at the
-                same time.
+                Sent live between browsers. SecureSend doesn't store a copy. You
+                and the recipient must both keep the app open at the same time.
               </div>
             </button>
             <button
@@ -448,10 +447,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
                 Send for later
               </div>
               <div className="mode-option__desc">
-                Encrypted in your browser, then parked on the server so your
+                Encrypted in your browser, then stored temporarily so your
                 recipient can download anytime — you can close the app once it
-                uploads. The server only ever holds scrambled data it can't read,
-                and it's auto-deleted after the link expires.
+                uploads. SecureSend only holds scrambled data it can't read, and
+                it's auto-deleted after the link expires.
               </div>
             </button>
           </div>
