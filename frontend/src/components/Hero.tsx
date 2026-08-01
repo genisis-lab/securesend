@@ -63,15 +63,16 @@ export function Hero({ onHome, isHome, showInstall, justInstalled, onInstall }: 
         <div className="hero__intro">
           <span className="hero__badge">
             <AppIcon icon={ShieldCheck} size={16} weight="fill" />
-            End-to-end encrypted · zero server storage
+            End-to-end encrypted · no plaintext server storage
           </span>
           <h1 className="hero__headline">
             Send files that <span className="hero__headline-accent">only</span> your
             recipient can open
           </h1>
           <p className="hero__lead">
-            Files are encrypted in your browser and streamed directly,
-            peer-to-peer. No uploads, no server copies — just a private link.
+            Files are encrypted in your browser before they leave your device.
+            Send live between browsers, or choose Send for later to keep an
+            encrypted copy available when your recipient is offline.
           </p>
         </div>
       )}
