@@ -4,17 +4,15 @@ import { registerSW } from "virtual:pwa-register";
 export interface ServiceWorkerState {
   /** A new version is waiting; calling `update()` activates it and reloads. */
   needRefresh: boolean;
-  /** The app shell has been cached and is ready to work offline. */
-  offlineReady: boolean;
   /** Activate the waiting SW and reload to the new version. */
   update: () => void;
-  /** Dismiss the current notice (e.g. offline-ready) without updating. */
+  /** Dismiss the update notice without updating. */
   dismiss: () => void;
 }
 
 /**
  * Wraps vite-plugin-pwa's `registerSW` so the UI can show a non-disruptive
- * "Update available" toast and an "Offline ready" confirmation.
+ * "Update available" toast.
  *
  * We intentionally use the plugin's `prompt` mode (set in vite.config.ts)
  * instead of `autoUpdate`: auto-reloading the page to apply an update could
@@ -23,7 +21,6 @@ export interface ServiceWorkerState {
  */
 export function useServiceWorker(): ServiceWorkerState {
   const [needRefresh, setNeedRefresh] = useState(false);
-  const [offlineReady, setOfflineReady] = useState(false);
   const [updateFn, setUpdateFn] = useState<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
@@ -35,9 +32,6 @@ export function useServiceWorker(): ServiceWorkerState {
       onNeedRefresh() {
         setNeedRefresh(true);
       },
-      onOfflineReady() {
-        setOfflineReady(true);
-      },
     });
     // Stash the updater so the button can call it (true = reload after activate).
     setUpdateFn(() => () => updateSW(true));
@@ -45,14 +39,12 @@ export function useServiceWorker(): ServiceWorkerState {
 
   return {
     needRefresh,
-    offlineReady,
     update: () => {
       void updateFn?.();
       setNeedRefresh(false);
     },
     dismiss: () => {
       setNeedRefresh(false);
-      setOfflineReady(false);
     },
   };
 }

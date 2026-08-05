@@ -233,7 +233,6 @@ export function App() {
 
       <UpdateToast
         needRefresh={sw.needRefresh}
-        offlineReady={sw.offlineReady}
         onUpdate={sw.update}
         onDismiss={sw.dismiss}
       />
