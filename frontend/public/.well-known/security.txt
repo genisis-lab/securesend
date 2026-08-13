@@ -1,0 +1,4 @@
+Contact: https://github.com/genisis-lab/securesend/security/advisories/new
+Expires: 2027-08-13T00:00:00Z
+Preferred-Languages: en
+Canonical: https://send.builtwai.com/.well-known/security.txt

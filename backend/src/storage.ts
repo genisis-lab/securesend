@@ -58,6 +58,12 @@ const MAX_MANIFEST_CHARS = 1_000_000;
 /** R2's multipart limit; also bounds the completion payload. */
 const MAX_PARTS = 10000;
 
+/** JSON completion metadata is bounded independently of ciphertext parts. */
+const MAX_COMPLETION_BYTES = 4 * 1024 * 1024;
+
+/** Keep an individual R2 ETag small and free of header/control characters. */
+const MAX_ETAG_CHARS = 512;
+
 const META_SUFFIX = ":meta";
 const BODY_PREFIX = "blob/";
 
@@ -76,6 +82,161 @@ export function storeTtl(env: Env): number {
 
 export function isValidId(id: string): boolean {
   return /^[A-Za-z0-9_-]{16,48}$/.test(id);
+}
+
+class PayloadTooLargeError extends Error {}
+class EmptyPayloadError extends Error {}
+
+function validateDeclaredBodyLength(request: Request, maxBytes: number): void {
+  const declared = request.headers.get("Content-Length");
+  if (declared === null) return;
+  if (!/^\d+$/.test(declared)) throw new TypeError("Invalid Content-Length");
+  const length = Number(declared);
+  if (!Number.isSafeInteger(length)) throw new TypeError("Invalid Content-Length");
+  if (length > maxBytes) throw new PayloadTooLargeError();
+  if (length === 0) throw new EmptyPayloadError();
+}
+
+/**
+ * Preserve backpressure while enforcing a byte limit even when Content-Length
+ * is absent or dishonest. The first non-empty chunk is read before returning
+ * so R2 never receives an empty multipart part.
+ */
+async function boundedBodyStream(
+  request: Request,
+  maxBytes: number,
+): Promise<ReadableStream<Uint8Array>> {
+  validateDeclaredBodyLength(request, maxBytes);
+  if (!request.body) throw new EmptyPayloadError();
+
+  const reader = request.body.getReader();
+  let first: Uint8Array | undefined;
+  while (!first) {
+    const result = await reader.read();
+    if (result.done) throw new EmptyPayloadError();
+    if (result.value.byteLength > 0) first = result.value;
+  }
+  if (first.byteLength > maxBytes) {
+    await reader.cancel().catch(() => undefined);
+    throw new PayloadTooLargeError();
+  }
+
+  let total = first.byteLength;
+  let initial: Uint8Array | undefined = first;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (initial) {
+        controller.enqueue(initial);
+        initial = undefined;
+        return;
+      }
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.close();
+            return;
+          }
+          if (value.byteLength === 0) continue;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel().catch(() => undefined);
+            controller.error(new PayloadTooLargeError());
+            return;
+          }
+          controller.enqueue(value);
+          return;
+        }
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
+async function readBoundedBody(
+  request: Request,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  validateDeclaredBodyLength(request, maxBytes);
+
+  if (!request.body) throw new EmptyPayloadError();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new PayloadTooLargeError();
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function tokenMatches(
+  provided: string | null,
+  expected: string,
+): Promise<boolean> {
+  if (!provided) return false;
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  const a = new Uint8Array(left);
+  const b = new Uint8Array(right);
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    difference |= a[index] ^ b[index];
+  }
+  return difference === 0;
+}
+
+interface UploadedPart {
+  partNumber: number;
+  etag: string;
+}
+
+function validateUploadedParts(value: unknown): UploadedPart[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_PARTS) {
+    return null;
+  }
+  const seen = new Set<number>();
+  const parts: UploadedPart[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const { partNumber, etag } = candidate as Partial<UploadedPart>;
+    if (
+      !Number.isInteger(partNumber) ||
+      (partNumber as number) < 1 ||
+      (partNumber as number) > MAX_PARTS ||
+      seen.has(partNumber as number) ||
+      typeof etag !== "string" ||
+      etag.length === 0 ||
+      etag.length > MAX_ETAG_CHARS ||
+      /[\u0000-\u001f\u007f]/.test(etag)
+    ) {
+      return null;
+    }
+    seen.add(partNumber as number);
+    parts.push({ partNumber: partNumber as number, etag });
+  }
+  return parts;
 }
 
 /**
@@ -132,13 +293,17 @@ export async function handleStore(
     }
     const meta = await readMeta(bucket, id);
     if (!meta) return text("Not found", 404, cors);
-    if (request.headers.get("X-Token") !== meta.token) return text("Forbidden", 403, cors);
+    if (!(await tokenMatches(request.headers.get("X-Token"), meta.token))) {
+      return text("Forbidden", 403, cors);
+    }
     if (meta.expiresAt < Date.now()) {
       // Expired before completion: opportunistically abort the multipart
       // upload and drop the slot, so uncommitted parts don't linger in R2
       // (uncommitted parts consume storage until aborted).
       try {
-        bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId).abort();
+        await bucket
+          .resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId)
+          .abort();
       } catch {
         /* ignore */
       }
@@ -146,10 +311,23 @@ export async function handleStore(
       return text("Expired", 410, cors);
     }
 
-    const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
-    const body = await request.arrayBuffer();
-    const part = await mp.uploadPart(partNumber, body);
-    return json({ partNumber: part.partNumber, etag: part.etag }, 200, cors);
+    let body: ReadableStream<Uint8Array>;
+    try {
+      body = await boundedBodyStream(request, PART_SIZE);
+      const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
+      const part = await mp.uploadPart(partNumber, body);
+      return json({ partNumber: part.partNumber, etag: part.etag }, 200, cors);
+    } catch (error) {
+      return text(
+        error instanceof PayloadTooLargeError
+          ? "Part too large"
+          : error instanceof EmptyPayloadError
+            ? "Empty part"
+            : "Invalid body",
+        error instanceof PayloadTooLargeError ? 413 : 400,
+        cors,
+      );
+    }
   }
 
   // POST /api/store/:id/complete -> finalize the multipart upload.
@@ -159,18 +337,26 @@ export async function handleStore(
     if (!isValidId(id)) return text("Invalid id", 400, cors);
     const meta = await readMeta(bucket, id);
     if (!meta) return text("Not found", 404, cors);
-    if (request.headers.get("X-Token") !== meta.token) return text("Forbidden", 403, cors);
+    if (!(await tokenMatches(request.headers.get("X-Token"), meta.token))) {
+      return text("Forbidden", 403, cors);
+    }
 
-    const payload = (await request.json()) as {
-      parts: { partNumber: number; etag: string }[];
-      manifest: string;
-      size: number;
-    };
-    if (
-      !Array.isArray(payload.parts) ||
-      payload.parts.length === 0 ||
-      payload.parts.length > MAX_PARTS
-    ) {
+    let payload: Record<string, unknown>;
+    try {
+      const bytes = await readBoundedBody(request, MAX_COMPLETION_BYTES);
+      payload = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    } catch (error) {
+      return text(
+        error instanceof PayloadTooLargeError ? "Completion payload too large" : "Invalid JSON",
+        error instanceof PayloadTooLargeError ? 413 : 400,
+        cors,
+      );
+    }
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return text("Invalid payload", 400, cors);
+    }
+    const parts = validateUploadedParts(payload.parts);
+    if (!parts) {
       return text("No parts", 400, cors);
     }
     if (
@@ -185,17 +371,12 @@ export async function handleStore(
     // `payload.size`, which a dishonest client could simply lie about to
     // bypass the per-IP budget (and corrupt Content-Length on download).
     const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
-    let actualSize =
-      Number.isFinite(payload.size) && payload.size >= 0 ? payload.size : 0;
+    let actualSize: number;
     try {
-      const committed = (await mp.complete(
-        payload.parts.map((p) => ({ partNumber: p.partNumber, etag: p.etag })),
-      )) as { size?: number } | null | undefined;
-      if (committed && typeof committed.size === "number") {
-        actualSize = committed.size;
-      }
-    } catch (e) {
-      return text(`Complete failed: ${e instanceof Error ? e.message : "error"}`, 400, cors);
+      const committed = await mp.complete(parts);
+      actualSize = committed.size;
+    } catch {
+      return text("Complete failed", 400, cors);
     }
 
     // Enforce the per-IP byte budget with the server-measured size. If over
@@ -215,7 +396,7 @@ export async function handleStore(
 
     meta.uploaded = true;
     meta.size = actualSize;
-    meta.manifest = payload.manifest;
+    meta.manifest = payload.manifest as string;
     await bucket.put(id + META_SUFFIX, JSON.stringify(meta));
     return json({ ok: true }, 200, cors);
   }
@@ -320,10 +501,14 @@ export async function handleStore(
   // DELETE /api/store/:id -> delete body + meta (and abort if incomplete).
   if (request.method === "DELETE" && !isMeta) {
     if (!meta) return json({ ok: true }, 200, cors);
-    if (request.headers.get("X-Token") !== meta.token) return text("Forbidden", 403, cors);
+    if (!(await tokenMatches(request.headers.get("X-Token"), meta.token))) {
+      return text("Forbidden", 403, cors);
+    }
     if (!meta.uploaded) {
       try {
-        bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId).abort();
+        await bucket
+          .resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId)
+          .abort();
       } catch {
         /* ignore */
       }
