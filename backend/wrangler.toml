@@ -1,6 +1,6 @@
 name = "securesend-signal"
 main = "src/index.ts"
-compatibility_date = "2024-09-23"
+compatibility_date = "2026-08-12"
 compatibility_flags = ["nodejs_compat"]
 
 # ---------------------------------------------------------------------------

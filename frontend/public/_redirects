@@ -1,3 +1,2 @@
-# SPA fallback for Cloudflare Pages: route all paths to index.html so the
-# client-side hash router can handle invite links like /#/r/<roomId>.
-/*    /index.html   200
+# Cloudflare Pages provides its default SPA fallback when no top-level 404.html
+# exists. Do not add a catch-all rewrite here: static well-known files must win.

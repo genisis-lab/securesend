@@ -12,6 +12,35 @@ interface StoredObj {
   text: string;
 }
 
+async function readBody(
+  value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+): Promise<Uint8Array> {
+  if (typeof value === "string") return new TextEncoder().encode(value);
+  if (value instanceof Blob) return new Uint8Array(await value.arrayBuffer());
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+
+  const reader = value.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value: chunk } = await reader.read();
+    if (done) break;
+    const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+    chunks.push(bytes);
+    total += bytes.byteLength;
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
 class FakeR2 {
   objects = new Map<string, StoredObj>();
   private mpCounter = 0;
@@ -58,10 +87,13 @@ class FakeR2 {
   resumeMultipartUpload(key: string, uploadId: string) {
     const self = this;
     return {
-      async uploadPart(partNumber: number, body: ArrayBuffer | Uint8Array) {
+      async uploadPart(
+        partNumber: number,
+        body: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+      ) {
         const mp = self.multiparts.get(uploadId);
         if (!mp) throw new Error("no such upload");
-        mp.parts.set(partNumber, body instanceof Uint8Array ? body : new Uint8Array(body));
+        mp.parts.set(partNumber, await readBody(body));
         return { partNumber, etag: `etag-${partNumber}` };
       },
       async complete(parts: { partNumber: number; etag: string }[]) {
@@ -177,6 +209,57 @@ describe("handleStore routing", () => {
       CORS,
     ))!;
     expect(res.status).toBe(403);
+  });
+
+  it("rejects empty and oversized multipart bodies", async () => {
+    const create = (await handleStore(req("POST", "/api/store"), env, CORS))!;
+    const { id, token } = (await create.json()) as { id: string; token: string };
+
+    const empty = (await handleStore(
+      req("PUT", `/api/store/${id}/parts/1`, { token, body: new Uint8Array() }),
+      env,
+      CORS,
+    ))!;
+    expect(empty.status).toBe(400);
+
+    const oversized = (await handleStore(
+      req("PUT", `/api/store/${id}/parts/1`, {
+        token,
+        body: new Uint8Array([1]),
+        headers: { "Content-Length": String(10 * 1024 * 1024 + 1) },
+      }),
+      env,
+      CORS,
+    ))!;
+    expect(oversized.status).toBe(413);
+
+    const streamedOversized = (await handleStore(
+      req("PUT", `/api/store/${id}/parts/1`, {
+        token,
+        body: new Uint8Array(10 * 1024 * 1024 + 1),
+      }),
+      env,
+      CORS,
+    ))!;
+    expect(streamedOversized.status).toBe(413);
+  });
+
+  it("validates completion part records before calling R2", async () => {
+    const create = (await handleStore(req("POST", "/api/store"), env, CORS))!;
+    const { id, token } = (await create.json()) as { id: string; token: string };
+    const duplicateParts = [
+      { partNumber: 1, etag: "etag-1" },
+      { partNumber: 1, etag: "etag-duplicate" },
+    ];
+    const complete = (await handleStore(
+      req("POST", `/api/store/${id}/complete`, {
+        token,
+        body: JSON.stringify({ parts: duplicateParts, manifest: "m", size: 1 }),
+      }),
+      env,
+      CORS,
+    ))!;
+    expect(complete.status).toBe(400);
   });
 
   it("performs a full upload -> complete -> meta -> download cycle", async () => {

@@ -29,6 +29,9 @@ interface PeerSlot {
   sessionToken: string;
 }
 
+/** SDP/ICE signaling envelopes are small; bound relay memory and fan-out. */
+const MAX_SIGNAL_BYTES = 64 * 1024;
+
 export class SignalingRoom implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
@@ -223,10 +226,21 @@ export class SignalingRoom implements DurableObject {
   private onMessage(from: PeerSlot, event: MessageEvent): void {
     let parsed: SignalEnvelope;
     try {
-      const text =
-        typeof event.data === "string"
-          ? event.data
-          : new TextDecoder().decode(event.data as ArrayBuffer);
+      let text: string;
+      if (typeof event.data === "string") {
+        if (new TextEncoder().encode(event.data).byteLength > MAX_SIGNAL_BYTES) {
+          this.sendRaw(from.socket, makeError("message-too-large"));
+          return;
+        }
+        text = event.data;
+      } else {
+        const data = event.data as ArrayBuffer;
+        if (data.byteLength > MAX_SIGNAL_BYTES) {
+          this.sendRaw(from.socket, makeError("message-too-large"));
+          return;
+        }
+        text = new TextDecoder().decode(data);
+      }
       parsed = JSON.parse(text) as SignalEnvelope;
     } catch {
       this.sendRaw(from.socket, makeError("malformed-message"));

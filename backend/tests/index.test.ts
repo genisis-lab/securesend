@@ -6,7 +6,9 @@ import {
   isValidRoomId,
   corsHeaders,
   isOriginAllowed,
+  type Env,
 } from "../src/index";
+import worker from "../src/index";
 
 describe("base64UrlEncode", () => {
   it("uses URL-safe alphabet and strips padding", () => {
@@ -68,9 +70,14 @@ describe("corsHeaders", () => {
     expect(second["Access-Control-Allow-Origin"]).toBe("https://staging.example.com");
   });
 
-  it("returns 'null' origin for a disallowed origin", () => {
+  it("omits CORS permission for a disallowed origin", () => {
     const h = corsHeaders("https://evil.test", "https://example.pages.dev") as Record<string, string>;
-    expect(h["Access-Control-Allow-Origin"]).toBe("null");
+    expect(h["Access-Control-Allow-Origin"]).toBeUndefined();
+  });
+
+  it("does not accidentally authorize the opaque null origin", () => {
+    const h = corsHeaders("null", "https://example.pages.dev") as Record<string, string>;
+    expect(h["Access-Control-Allow-Origin"]).toBeUndefined();
   });
 
   it("always sets Vary: Origin so caches don't leak CORS decisions", () => {
@@ -107,5 +114,26 @@ describe("production origin policy", () => {
     );
     expect(wranglerConfig).toContain("https://send.builtwai.com");
     expect(wranglerConfig).toContain("https://securesend.pages.dev");
+  });
+});
+
+describe("paid-resource rate limits", () => {
+  it("fails closed when the limiter is unavailable", async () => {
+    const env = {
+      ALLOWED_ORIGINS: "https://send.builtwai.com",
+      RATE_LIMITER: {
+        idFromName() {
+          throw new Error("limiter unavailable");
+        },
+      },
+    } as unknown as Env;
+    const response = await worker.fetch(
+      new Request("https://signal.example/api/ice", {
+        headers: { Origin: "https://send.builtwai.com" },
+      }),
+      env,
+    );
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
   });
 });

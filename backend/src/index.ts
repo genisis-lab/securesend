@@ -21,9 +21,15 @@ import { handleStore } from "./storage";
 
 export { SignalingRoom, RateLimiter };
 
-export interface Env {
-  SIGNALING_ROOM: DurableObjectNamespace;
-  RATE_LIMITER: DurableObjectNamespace;
+export interface Env
+  extends Omit<
+    CloudflareBindings,
+    | "BLOBS"
+    | "ALLOWED_ORIGINS"
+    | "ROOM_TTL_SECONDS"
+    | "RECONNECT_GRACE_SECONDS"
+    | "STORE_TTL_SECONDS"
+  > {
   /** R2 bucket for optional store-and-forward (encrypted blobs only). */
   BLOBS?: R2Bucket;
   ALLOWED_ORIGINS: string;
@@ -66,19 +72,20 @@ export function isValidRoomId(id: string): boolean {
 export function corsHeaders(origin: string | null, allowed: string): HeadersInit {
   // When ALLOWED_ORIGINS is "*", echo any origin. Otherwise only allow listed.
   const list = allowed.split(",").map((s) => s.trim());
-  let allowOrigin = "null";
+  let allowOrigin: string | undefined;
   if (allowed.trim() === "*") {
     allowOrigin = origin ?? "*";
   } else if (origin && list.includes(origin)) {
     allowOrigin = origin;
   }
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Token, X-Manifest",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
+  if (allowOrigin) headers["Access-Control-Allow-Origin"] = allowOrigin;
+  return headers;
 }
 
 /**
@@ -135,8 +142,9 @@ async function rateLimit(
     const res = await stub.fetch("https://rl/consume" + qs);
     return (await res.json()) as RateLimitResult;
   } catch {
-    // Fail open: never block legitimate users if the limiter errors.
-    return { allowed: true, remaining: -1, retryAfter: 0 };
+    // Rate limits protect paid storage/TURN resources, so dependency failures
+    // must not silently disable them.
+    return { allowed: false, remaining: 0, retryAfter: 60 };
   }
 }
 
@@ -145,6 +153,9 @@ async function rateLimit(
  * real R2 storage + egress. 6 new stored transfers per hour per IP.
  */
 const STORE_RL = { cap: 6, win: 60 * 60 * 1000 };
+
+/** TURN credential minting is a paid upstream resource. */
+const ICE_RL = { cap: 60, win: 60 * 60 * 1000 };
 
 /**
  * Per-IP byte budget for stored transfers, charged at completion when the real
@@ -167,8 +178,7 @@ async function chargeStoreBytes(
     const data = (await res.json()) as { allowed: boolean };
     return data.allowed;
   } catch {
-    // Fail open: never block legitimate users if the limiter errors.
-    return true;
+    return false;
   }
 }
 
@@ -261,6 +271,20 @@ export default {
 
     // ICE/TURN servers for the client's RTCPeerConnection.
     if (url.pathname === "/api/ice" && request.method === "GET") {
+      const rl = await rateLimit(request, env, "ice", ICE_RL);
+      if (!rl.allowed) {
+        return new Response(
+          JSON.stringify({ error: "rate-limited", retryAfter: rl.retryAfter }),
+          {
+            status: 429,
+            headers: {
+              "Content-Type": "application/json",
+              "Retry-After": String(rl.retryAfter),
+              ...cors,
+            },
+          },
+        );
+      }
       const iceServers = await buildIceServers(env);
       return new Response(JSON.stringify({ iceServers }), {
         headers: {
