@@ -11,3 +11,6 @@
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.neil27.workers.dev wss://securesend-signal.neil27.workers.dev; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+/.well-known/security.txt
+  Content-Type: text/plain; charset=utf-8
