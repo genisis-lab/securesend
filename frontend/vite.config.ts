@@ -21,7 +21,7 @@ export default defineConfig({
       // useServiceWorker hook, so disable the auto-injected registration to
       // avoid registering twice.
       injectRegister: false,
-      includeAssets: ["favicon.svg", "robots.txt"],
+      includeAssets: ["favicon.svg", "robots.txt", "sitemap.xml", "social-card.png"],
       manifest: {
         // Stable identity so the browser treats updates as the same app.
         id: "/?source=pwa",

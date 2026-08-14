@@ -52,6 +52,7 @@ async function main() {
     } else {
       fail("index.html is missing a theme-color meta tag.");
     }
+    checkSeo(html);
   }
 
   // 2. Locate the manifest file (name varies: manifest.webmanifest).
@@ -134,6 +135,27 @@ async function main() {
   }
 
   report();
+}
+
+function checkSeo(html) {
+  const required = [
+    ["canonical URL", /<link[^>]+rel=["']canonical["'][^>]+href=["']https:\/\/send\.builtwai\.com\/["']/i],
+    ["Open Graph URL", /<meta[^>]+property=["']og:url["'][^>]+content=["']https:\/\/send\.builtwai\.com\/["']/i],
+    ["Open Graph image", /<meta[^>]+property=["']og:image["'][^>]+content=["']https:\/\/[^"']+["']/i],
+    ["X large-image card", /<meta[^>]+name=["']twitter:card["'][^>]+content=["']summary_large_image["']/i],
+    ["X image", /<meta[^>]+name=["']twitter:image["'][^>]+content=["']https:\/\/[^"']+["']/i],
+    ["JSON-LD structured data", /<script[^>]+type=["']application\/ld\+json["']/i],
+  ];
+
+  for (const [label, pattern] of required) {
+    if (pattern.test(html)) pass(`SEO: ${label} is present.`);
+    else fail(`SEO: ${label} is missing or invalid.`);
+  }
+
+  for (const asset of ["social-card.png", "robots.txt", "sitemap.xml"]) {
+    if (existsSync(resolve(dist, asset))) pass(`SEO asset present: ${asset}`);
+    else fail(`SEO asset missing from dist/: ${asset}`);
+  }
 }
 
 function requireField(m, field) {
