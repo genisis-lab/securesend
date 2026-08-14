@@ -185,6 +185,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
       deliveryMode,
       deliveryMode === "store" ? burnAfter : false,
     );
+    // The form can extend well below the fold. Once it turns into upload or
+    // invite details, return the viewport to that status instead of leaving
+    // the user stranded near the footer (especially noticeable in Safari).
+    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
   };
 
   const canCreate =
