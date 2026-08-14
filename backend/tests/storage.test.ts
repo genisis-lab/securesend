@@ -93,6 +93,10 @@ class FakeR2 {
       ) {
         const mp = self.multiparts.get(uploadId);
         if (!mp) throw new Error("no such upload");
+        // Production R2 rejected the generic stream wrapper introduced by the
+        // security-hardening pass. Keep this fake strict so the Worker hands R2
+        // a bounded, fixed-length value and the regression cannot return.
+        if (body instanceof ReadableStream) throw new Error("body length is unknown");
         mp.parts.set(partNumber, await readBody(body));
         return { partNumber, etag: `etag-${partNumber}` };
       },

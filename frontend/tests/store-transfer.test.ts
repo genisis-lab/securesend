@@ -63,6 +63,7 @@ function installFetchMock() {
       if (init.headers?.["X-Token"] !== slot.token) return textRes("Forbidden", 403);
       const n = parseInt(partMatch[2], 10);
       const bytes = new Uint8Array(init.body as ArrayBuffer);
+      if (bytes.byteLength === 0) return textRes("Empty part", 400);
       slot.parts.set(n, bytes);
       return jsonRes({ partNumber: n, etag: `etag-${n}` }, 200);
     }
@@ -183,6 +184,22 @@ describe("store-and-forward round trip", () => {
     expect(await blobToBytes(items[0].blob!)).toEqual(a);
     expect(await blobToBytes(items[1].blob!)).toEqual(b);
     expect(items[1].meta.mime).toBe("text/plain");
+  });
+
+  it("round-trips an empty file without uploading an empty multipart part", async () => {
+    const slots = installFetchMock();
+    const linkSecret = "empty-file-secret";
+    const { id } = await uploadStored({
+      files: [new File([], "empty.txt", { type: "text/plain" })],
+      linkSecret,
+      salt: randomBytes(16),
+      onProgress: () => {},
+    });
+
+    expect(slots.get(id)?.body?.byteLength).toBeGreaterThan(0);
+    const { items } = await downloadStored({ id, linkSecret, onProgress: () => {} });
+    expect(items[0].meta.name).toBe("empty.txt");
+    expect(items[0].blob?.size).toBe(0);
   });
 
   it("fails to decrypt with the wrong link secret", async () => {

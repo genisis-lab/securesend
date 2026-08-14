@@ -102,6 +102,8 @@ function frameSize(n: number): number {
   return IV_LENGTH + 4 + n + GCM_TAG_BYTES;
 }
 
+class NonRetryableUploadError extends Error {}
+
 export interface StoreUploadResult {
   /** Storage id to embed in the invite link. */
   id: string;
@@ -190,15 +192,20 @@ export async function uploadStored(opts: {
           uploadedParts.push({ partNumber: thisPart, etag });
           return;
         }
+        const detail = (await res.text().catch(() => "")).trim();
+        const message = detail
+          ? `Part upload failed: ${detail} (HTTP ${res.status})`
+          : `Part upload failed (HTTP ${res.status})`;
         // 4xx (except 408/429) are not worth retrying.
         if (res.status < 500 && res.status !== 408 && res.status !== 429) {
-          throw new Error(`Part upload failed (HTTP ${res.status})`);
+          throw new NonRetryableUploadError(message);
         }
-        lastErr = new Error(`Part upload failed (HTTP ${res.status})`);
+        lastErr = new Error(message);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           throw new Error("cancelled");
         }
+        if (err instanceof NonRetryableUploadError) throw err;
         lastErr = err;
       }
       // Backoff before the next attempt (skip after the final one).
@@ -242,7 +249,10 @@ export async function uploadStored(opts: {
       size: file.size,
       mime: file.type || "application/octet-stream",
       chunkSize,
-      totalChunks: Math.ceil(file.size / chunkSize) || 0,
+      // A stored empty file still gets one authenticated zero-length chunk.
+      // This keeps its multipart body non-empty while decrypting back to an
+      // exact zero-byte file on the recipient's device.
+      totalChunks: Math.max(1, Math.ceil(file.size / chunkSize)),
       transferId: randomTransferId(),
     };
     const regionStart = byteCursor;
@@ -269,6 +279,14 @@ export async function uploadStored(opts: {
       });
     }
 
+    if (file.size === 0) {
+      const data = new Uint8Array(0);
+      const iv = generateIV();
+      const aad = buildChunkAAD(meta, 0);
+      const ct = await encryptChunk(key, iv, data, aad);
+      await appendToBuffer(packFrame(iv, 0, ct));
+    }
+
     entries.push({
       ...meta,
       byteOffset: regionStart,
@@ -279,10 +297,6 @@ export async function uploadStored(opts: {
   // Flush the final partial part (R2 allows the last part to be < part size).
   if (bufFill > 0) {
     await uploadPart(buffer.subarray(0, bufFill));
-  }
-  if (uploadedParts.length === 0) {
-    // Zero-byte transfer (e.g. empty file): upload a single empty part.
-    await uploadPart(new Uint8Array(0));
   }
 
   // 3. Encrypt the manifest with the same key (its own IV + AAD).

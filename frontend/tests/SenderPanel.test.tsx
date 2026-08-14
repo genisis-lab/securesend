@@ -10,6 +10,7 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -107,5 +108,37 @@ describe("<SenderPanel>", () => {
 
     const passphraseInput = container.querySelector<HTMLInputElement>('input[type="password"]');
     expect(passphraseInput?.value.split("-").length).toBe(4);
+  });
+
+  it("returns to the top when a send-for-later upload starts", () => {
+    const onStart = vi.fn();
+    const scrollTo = vi.mocked(window.scrollTo);
+    render(
+      <SenderPanel
+        state={null}
+        onStart={onStart}
+        onCancel={() => {}}
+        onReset={() => {}}
+        initialFiles={[new File(["data"], "file.txt", { type: "text/plain" })]}
+      />,
+    );
+
+    const store = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Send for later"),
+    );
+    click(store ?? null);
+    const create = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Create secure invite"),
+    );
+    click(create ?? null);
+
+    expect(onStart).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      600,
+      "store",
+      false,
+    );
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "smooth" });
   });
 });

@@ -57,7 +57,10 @@ export async function readSharedPayload(
     const nameHeader = res.headers.get("X-Share-Filename");
     const name = nameHeader ? decodeURIComponent(nameHeader) : `shared-${i}`;
     const type = res.headers.get("Content-Type") || blob.type || "application/octet-stream";
-    files.push(new File([blob], name, { type }));
+    // Materialize the bytes before crossing from the Cache API's Blob into a
+    // File. This avoids cross-realm Blob coercion (`"[object Blob]"`) in some
+    // WebKit/test environments and guarantees the reconstructed size/content.
+    files.push(new File([await blob.arrayBuffer()], name, { type }));
   }
 
   return {

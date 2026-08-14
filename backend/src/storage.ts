@@ -97,67 +97,6 @@ function validateDeclaredBodyLength(request: Request, maxBytes: number): void {
   if (length === 0) throw new EmptyPayloadError();
 }
 
-/**
- * Preserve backpressure while enforcing a byte limit even when Content-Length
- * is absent or dishonest. The first non-empty chunk is read before returning
- * so R2 never receives an empty multipart part.
- */
-async function boundedBodyStream(
-  request: Request,
-  maxBytes: number,
-): Promise<ReadableStream<Uint8Array>> {
-  validateDeclaredBodyLength(request, maxBytes);
-  if (!request.body) throw new EmptyPayloadError();
-
-  const reader = request.body.getReader();
-  let first: Uint8Array | undefined;
-  while (!first) {
-    const result = await reader.read();
-    if (result.done) throw new EmptyPayloadError();
-    if (result.value.byteLength > 0) first = result.value;
-  }
-  if (first.byteLength > maxBytes) {
-    await reader.cancel().catch(() => undefined);
-    throw new PayloadTooLargeError();
-  }
-
-  let total = first.byteLength;
-  let initial: Uint8Array | undefined = first;
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (initial) {
-        controller.enqueue(initial);
-        initial = undefined;
-        return;
-      }
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            controller.close();
-            return;
-          }
-          if (value.byteLength === 0) continue;
-          total += value.byteLength;
-          if (total > maxBytes) {
-            await reader.cancel().catch(() => undefined);
-            controller.error(new PayloadTooLargeError());
-            return;
-          }
-          controller.enqueue(value);
-          return;
-        }
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-    cancel(reason) {
-      return reader.cancel(reason);
-    },
-  });
-}
-
 async function readBoundedBody(
   request: Request,
   maxBytes: number,
@@ -178,6 +117,8 @@ async function readBoundedBody(
     }
     chunks.push(value);
   }
+
+  if (total === 0) throw new EmptyPayloadError();
 
   const bytes = new Uint8Array(total);
   let offset = 0;
@@ -311,9 +252,14 @@ export async function handleStore(
       return text("Expired", 410, cors);
     }
 
-    let body: ReadableStream<Uint8Array>;
     try {
-      body = await boundedBodyStream(request, PART_SIZE);
+      // R2 accepts fixed-length values for uploadPart. Do not wrap the inbound
+      // body in a new generic ReadableStream: doing so discards the runtime's
+      // known-length semantics and causes production R2 uploads to fail with
+      // HTTP 400. Parts are capped at 10 MiB, so buffering this one bounded
+      // part is safe while still enforcing the bound when Content-Length is
+      // absent or dishonest.
+      const body = await readBoundedBody(request, PART_SIZE);
       const mp = bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId);
       const part = await mp.uploadPart(partNumber, body);
       return json({ partNumber: part.partNumber, etag: part.etag }, 200, cors);
