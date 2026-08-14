@@ -14,3 +14,10 @@
 
 /.well-known/security.txt
   Content-Type: text/plain; charset=utf-8
+
+/social-card.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+  Content-Type: image/png
+
+/sitemap.xml
+  Content-Type: application/xml; charset=utf-8

@@ -5,10 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0b1020" />
+    <meta name="color-scheme" content="dark" />
     <meta
       name="description"
-      content="End-to-end encrypted file transfer. Send live peer-to-peer, or store an encrypted copy temporarily for recipients who are offline."
+      content="Send files securely with end-to-end encryption. Transfer peer-to-peer in real time or share an encrypted file for later—free, private, and browser-based."
     />
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta name="application-name" content="SecureSend" />
+    <link rel="canonical" href="https://send.builtwai.com/" />
     <!--
       Content Security Policy (defense-in-depth; production is locked down by
       public/_headers, which the browser enforces as the INTERSECTION with this
@@ -27,7 +34,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://securesend-signal.neil27.workers.dev wss://securesend-signal.neil27.workers.dev ws://localhost:8787 http://localhost:8787; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
     />
-    <title>SecureSend — Encrypted P2P File Transfer</title>
+    <title>SecureSend | Free End-to-End Encrypted File Transfer</title>
 
     <!-- iOS / mobile web-app (native Add-to-Home-Screen experience) -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -37,25 +44,66 @@
     <meta name="format-detection" content="telephone=no" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-    <!-- Open Graph (social sharing); relative image URL — no fixed production domain -->
+    <!-- Open Graph: absolute URLs are required for reliable unfurls. -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://send.builtwai.com/" />
     <meta property="og:site_name" content="SecureSend" />
-    <meta property="og:title" content="SecureSend — Encrypted P2P File Transfer" />
+    <meta property="og:title" content="SecureSend | Private File Sharing, End to End" />
     <meta
       property="og:description"
-      content="Send live peer-to-peer, or keep an encrypted copy available for later. Decryption keys stay in your browser."
+      content="Send files with end-to-end encryption—live peer-to-peer or securely stored for later. Your decryption keys never leave your browser."
     />
-    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta property="og:image" content="https://send.builtwai.com/social-card.png" />
+    <meta property="og:image:secure_url" content="https://send.builtwai.com/social-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="SecureSend — private, end-to-end encrypted file sharing"
+    />
     <meta property="og:locale" content="en_US" />
 
-    <!-- Twitter card -->
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="SecureSend — Encrypted P2P File Transfer" />
+    <!-- X / Twitter large image card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SecureSend | Private File Sharing, End to End" />
     <meta
       name="twitter:description"
-      content="Send live peer-to-peer, or keep an encrypted copy available for later. Decryption keys stay in your browser."
+      content="Send files with end-to-end encryption—live peer-to-peer or securely stored for later. Your keys stay in your browser."
     />
-    <meta name="twitter:image" content="/icons/icon-512.png" />
+    <meta name="twitter:image" content="https://send.builtwai.com/social-card.png" />
+    <meta
+      name="twitter:image:alt"
+      content="SecureSend — private, end-to-end encrypted file sharing"
+    />
+
+    <!-- Search engines can understand the JavaScript app before rendering it. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "SecureSend",
+        "url": "https://send.builtwai.com/",
+        "description": "Free end-to-end encrypted file transfer with live peer-to-peer delivery and optional encrypted delivery for offline recipients.",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires a modern browser with WebRTC and Web Crypto support.",
+        "isAccessibleForFree": true,
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "End-to-end encrypted file transfer",
+          "Live peer-to-peer delivery",
+          "Encrypted send-for-later delivery",
+          "No account required",
+          "Installable progressive web app"
+        ],
+        "image": "https://send.builtwai.com/social-card.png"
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
