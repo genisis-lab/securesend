@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { FileReceiver, FileSender, ReceivedItem } from "../src/lib/transfer";
 import { blobToBytes } from "../src/lib/chunker";
 import {
@@ -188,5 +188,83 @@ describe("FileSender <-> FileReceiver end-to-end", () => {
 
     await sender.send();
     expect(ackSeen).toBe(true);
+  });
+});
+
+
+describe("large live transfer backpressure", () => {
+  it("stops at one window until a slow disk finishes, then delivers exact bytes", async () => {
+    const { aKey, bKey } = await sharedKeys();
+    const channel = new MockChannel();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    let firstWrite = true;
+    let written = 0;
+    let frames = 0;
+    const errors: string[] = [];
+    let completed = false;
+    const receiver = new FileReceiver({
+      key: bKey, rtc: channel.makeReceiverRtc(), onProgress: () => {},
+      onComplete: (items) => { completed = items[0].savedToDisk === true; },
+      onError: (e) => errors.push(e),
+      openSink: async () => ({ kind: "stream", write: async (bytes) => {
+        if (firstWrite) { firstWrite = false; await blocked; }
+        expect(bytes.every((value) => value === 37)).toBe(true);
+        written += bytes.length;
+      }, close: async () => {}, abort: async () => {} }),
+    });
+    channel.receiverInbound = (data) => { if (typeof data !== "string") frames++; receiver.handleMessage(data); };
+    const file = new File([new Uint8Array(3 * 1024 * 1024 + 7).fill(37)], "large.bin");
+    const sender = new FileSender({ rtc: channel.makeSenderRtc(), key: aKey, files: [file], onProgress: () => {}, onDone: () => {}, onError: (e) => errors.push(e) });
+    channel.senderInbound = (data) => sender.handleControl(JSON.parse(data as string));
+    const sending = sender.send();
+    await vi.waitFor(() => expect(frames).toBe(16));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(frames).toBe(16);
+    expect(written).toBe(0);
+    release();
+    await sending;
+    expect(errors).toEqual([]);
+    expect(written).toBe(file.size);
+    expect(completed).toBe(true);
+  });
+});
+
+describe("live completion safety", () => {
+  it("does not send file data when the receiver never becomes ready", async () => {
+    vi.useFakeTimers();
+    try {
+      const sendBytes = vi.fn();
+      const onDone = vi.fn();
+      const onError = vi.fn();
+      const sender = new FileSender({ key: {} as CryptoKey, files: [new File([], "empty")],
+        rtc: { sendControl: () => {}, sendBytes, bufferedAmount: 0 } as any,
+        onProgress: () => {}, onDone, onError });
+      const task = sender.send();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await task;
+      expect(sendBytes).not.toHaveBeenCalled();
+      expect(onDone).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(expect.stringMatching(/save location/));
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("does not claim delivery when the final receiver acknowledgement is missing", async () => {
+    vi.useFakeTimers();
+    try {
+      const onDone = vi.fn();
+      const onError = vi.fn();
+      let sender: FileSender;
+      sender = new FileSender({ key: {} as CryptoKey, files: [new File([], "empty")],
+        rtc: { sendControl: (msg: { kind: string }) => {
+          if (msg.kind === "manifest") sender.handleControl({ kind: "receiver-ready" });
+        }, bufferedAmount: 0 } as any,
+        onProgress: () => {}, onDone, onError });
+      const task = sender.send();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await task;
+      expect(onDone).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(expect.stringMatching(/did not confirm/));
+    } finally { vi.useRealTimers(); }
   });
 });

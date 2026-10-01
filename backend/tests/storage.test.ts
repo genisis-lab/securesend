@@ -490,3 +490,23 @@ describe("handleStore routing", () => {
     expect(complete.status).toBe(400);
   });
 });
+
+
+describe("upload size preflight", () => {
+  it("rejects an over-budget file before creating any R2 upload", async () => {
+    const bucket = new FakeR2();
+    let checked = 0;
+    const size = 4 * 1024 ** 3 + 2 * 1024 ** 2;
+    const response = await handleStore(new Request(`https://test/api/store?size=${size}`, { method: "POST" }), makeEnv(bucket), {}, undefined,
+      async (bytes) => { checked = bytes; return false; });
+    expect(response!.status).toBe(429);
+    expect(checked).toBe(size);
+    expect(bucket.multiparts.size).toBe(0);
+  });
+  it("accepts a 4 GiB declaration when the budget allows it", async () => {
+    const bucket = new FakeR2();
+    const response = await handleStore(new Request(`https://test/api/store?size=${4 * 1024 ** 3}`, { method: "POST" }), makeEnv(bucket), {}, undefined, async () => true);
+    expect(response!.status).toBe(201);
+    expect(bucket.multiparts.size).toBe(1);
+  });
+});

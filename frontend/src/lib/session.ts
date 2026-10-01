@@ -456,7 +456,12 @@ export class TransferSession {
         onPeerLeft: () => this.onPeerLeft(),
         onRoomFull: () =>
           this.fail(new Error("Room is full — a transfer is already in progress.")),
-        onRoomExpired: () => this.patch({ phase: "expired" }),
+        onRoomExpired: () => {
+          // Invite expiry closes signaling, not an established P2P transfer.
+          if (!["transferring", "ready-to-save", "complete"].includes(this.state.phase)) {
+            this.patch({ phase: "expired" });
+          }
+        },
         onError: (reason) => {
           // The signaling client now recovers socket drops internally via
           // reconnection, so a surfaced error here is a server-level protocol

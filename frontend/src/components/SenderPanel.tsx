@@ -394,9 +394,11 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             <div className="warn">
               <AppIcon icon={Warning} />
               <span>
-                That's a large amount of data ({formatBytes(totalSize)}). The
-                recipient's device assembles the file in memory, so very large
-                transfers may fail on phones or low-memory devices.
+                Large transfer ({formatBytes(totalSize)}) — this is not a size limit.
+                For a large single file, use desktop Chrome or Edge on the
+                receiving device and choose a save location to stream to disk.
+                Other browsers and multi-file transfers may need enough memory
+                to hold the received files.
               </span>
             </div>
           )}

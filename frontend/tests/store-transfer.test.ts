@@ -415,3 +415,17 @@ describe("store-and-forward round trip", () => {
     delete (window as any).showSaveFilePicker;
   });
 });
+
+
+describe("storage allowance preflight", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("includes ciphertext overhead for 4 GiB and stops before reading file data on rejection", async () => {
+    const file = { size: 4 * 1024 ** 3, name: "large.bin", type: "", slice: vi.fn() } as unknown as File;
+    const fetchMock = vi.fn(async (_input: unknown, _init?: unknown) => jsonRes({ error: "byte-budget-exceeded" }, 429));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(uploadStored({ files: [file], linkSecret: "large-test", salt: randomBytes(16), onProgress: () => {} })).rejects.toThrow("No file data was uploaded");
+    expect(new URL(fetchMock.mock.calls[0][0] as string).searchParams.get("size")).toBe(String(file.size + 65536 * 32));
+    expect(file.slice).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

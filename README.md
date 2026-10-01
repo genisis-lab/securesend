@@ -82,6 +82,7 @@ The server never sees: plaintext files, plaintext filenames/metadata, private ke
 - 🔥 **Burn after download** — optional one-time stored transfers delete their encrypted R2 copy only after the recipient confirms a successful save.
 - 🔁 **Resilient uploads** — store-mode multipart uploads retry transient network failures with exponential backoff.
 - 📥 **Resumable stored downloads** — store-mode downloads use HTTP Range resume so a network blip does not restart a large transfer from zero.
+- **Bounded live receive queue** — the sender waits for receiver checkpoints after each MiB, including disk writes, so a slow receiving disk cannot accumulate the entire transfer in memory.
 - 💾 **Streaming-to-disk for huge files** — on desktop Chromium, large single-file receives can stream decrypted bytes straight to disk via the File System Access API.
 - ⏱️ **Configurable invite expiry** — sender-selectable expiry from 5 minutes to 24 hours; server clamps and reports the real expiry.
 - ✅ **Reliable completion handshake** — receiver acknowledgement prevents the sender from tearing down before the final chunk is confirmed.
@@ -272,6 +273,7 @@ npm test                               # frontend + backend tests
 npm run test:frontend                  # frontend only
 npm run test:backend                   # backend only
 npm run test:watch --workspace frontend
+npm run test:large --workspace frontend # generated 4 GiB+ streams; mocked transport/storage
 ```
 
 Tests cover:
@@ -376,7 +378,7 @@ All frontend config is via Vite env vars. **These are not secrets.**
 | `ROOM_TTL_SECONDS` | backend | `600` | Default/fallback invite lifetime |
 | `RECONNECT_GRACE_SECONDS` | backend | `15` | Window to reclaim a live role after refresh |
 | `STORE_TTL_SECONDS` | backend | `86400` | Stored ciphertext expiry in seconds |
-| `STORE_BYTE_CAP` | backend | `2147483648` | Optional per-IP stored-byte cap |
+| `STORE_BYTE_CAP` | backend | `21474836480` | Per-IP stored-byte cap (20 GiB per day by default; checked before upload and enforced at completion) |
 | `STORE_BYTE_WINDOW_MS` | backend | `86400000` | Optional per-IP stored-byte window |
 | `TURN_TOKEN_ID` / `TURN_API_TOKEN` | backend secrets | unset | Cloudflare Calls TURN credentials |
 | `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` | backend secrets | unset | Static TURN fallback credentials |

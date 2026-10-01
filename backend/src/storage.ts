@@ -193,6 +193,7 @@ export async function handleStore(
   env: Env,
   cors: HeadersInit,
   chargeBytes?: (size: number) => Promise<boolean>,
+  checkBytes?: (size: number) => Promise<boolean>,
 ): Promise<Response | null> {
   if (!env.BLOBS) return null; // feature unavailable
   const bucket = env.BLOBS;
@@ -201,6 +202,18 @@ export async function handleStore(
 
   // POST /api/store -> create a slot + multipart upload.
   if (path === "/api/store" && request.method === "POST") {
+    // Preflight is advisory, not a reservation. Completion still charges the
+    // measured R2 size so concurrent uploads or dishonest clients cannot bypass it.
+    const declaredSize = url.searchParams.get("size");
+    if (declaredSize !== null) {
+      const size = Number(declaredSize);
+      if (!Number.isSafeInteger(size) || size <= 0 || size > PART_SIZE * MAX_PARTS) {
+        return text("Invalid upload size", 400, cors);
+      }
+      if (checkBytes && !(await checkBytes(size))) {
+        return json({ error: "byte-budget-exceeded" }, 429, cors);
+      }
+    }
     const id = randomToken(18);
     const token = randomToken(18);
     const mp = await bucket.createMultipartUpload(BODY_PREFIX + id);

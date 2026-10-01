@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { consumeToken, consumeBytes, BucketState, ByteBudgetState } from "../src/rate-limiter";
+import { RateLimiter, consumeToken, consumeBytes, BucketState, ByteBudgetState } from "../src/rate-limiter";
 
 const CAP = 20;
 const WINDOW = 10 * 60 * 1000; // 10 minutes
@@ -136,5 +136,26 @@ describe("consumeBytes (fixed-window byte budget)", () => {
     const state: ByteBudgetState = { used: 100, windowStart: 0 };
     const r = consumeBytes(state, WIN / 2, 10, CAP, WIN);
     expect(r.result.resetMs).toBe(WIN / 2);
+  });
+});
+
+
+describe("large stored transfer budgets", () => {
+  it("preflights 4 GiB without charging and then enforces the daily cap", async () => {
+    const values = new Map<string, unknown>();
+    const limiter = new RateLimiter({ storage: {
+      get: async (key: string) => values.get(key),
+      put: async (key: string, value: unknown) => { values.set(key, value); },
+    } } as any);
+    const size = 4 * 1024 ** 3 + 2 * 1024 ** 2; // ciphertext overhead included
+    const call = async (check = false) => (await limiter.fetch(
+      new Request(`https://rl/bytes?add=${size}${check ? "&check=1" : ""}`),
+    )).json() as Promise<{ allowed: boolean; used: number }>;
+    expect((await call(true)).allowed).toBe(true);
+    expect(values.size).toBe(0);
+    expect((await call()).used).toBe(size);
+    for (let i = 0; i < 3; i++) expect((await call()).allowed).toBe(true);
+    expect((await call(true)).allowed).toBe(false);
+    expect((await call()).allowed).toBe(false);
   });
 });

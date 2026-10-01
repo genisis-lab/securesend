@@ -118,8 +118,8 @@ export class RateLimiter implements DurableObject {
   static readonly CAPACITY = 20;
   /** Full refill window in milliseconds (20 tokens / 10 min). */
   static readonly REFILL_MS = 10 * 60 * 1000;
-  /** Default per-IP store byte budget: 2 GiB per 24h window. */
-  static readonly DEFAULT_BYTE_CAP = 2 * 1024 * 1024 * 1024;
+  /** Default per-IP store byte budget: 20 GiB per 24h window. */
+  static readonly DEFAULT_BYTE_CAP = 20 * 1024 * 1024 * 1024;
   static readonly DEFAULT_BYTE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
   constructor(state: DurableObjectState) {
@@ -148,7 +148,9 @@ export class RateLimiter implements DurableObject {
       );
       const stored = await this.state.storage.get<ByteBudgetState>("bytes");
       const { next, result } = consumeBytes(stored, now, add, cap, win);
-      if (result.allowed) await this.state.storage.put("bytes", next);
+      if (result.allowed && url.searchParams.get("check") !== "1") {
+        await this.state.storage.put("bytes", next);
+      }
       return new Response(JSON.stringify(result), {
         headers: { "Content-Type": "application/json" },
       });

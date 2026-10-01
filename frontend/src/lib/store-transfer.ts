@@ -133,9 +133,15 @@ export async function uploadStored(opts: {
   const chunkSize = DEFAULT_CHUNK_SIZE;
   const key = await deriveStoredAesKey(linkSecret, salt, passphrase);
 
+  // Include authenticated-frame overhead (12-byte IV, 4-byte index, 16-byte tag).
+  // Reject an unavailable budget before reading/encrypting/uploading gigabytes.
+  const ciphertextBytes = files.reduce((total, file) => total + file.size +
+    Math.max(1, Math.ceil(file.size / chunkSize)) * 32, 0);
+  const query = new URLSearchParams({ size: String(ciphertextBytes) });
+  if (burn) query.set("burn", "1");
   // 1. Create a storage slot + R2 multipart upload.
   const createRes = await fetchSafe(
-    `${httpBase()}/api/store${burn ? "?burn=1" : ""}`,
+    `${httpBase()}/api/store?${query}`,
     { method: "POST", signal },
   );
   if (!createRes.ok) {
@@ -143,6 +149,10 @@ export async function uploadStored(opts: {
       throw new Error("Store-and-forward isn't available on this server.");
     }
     if (createRes.status === 429) {
+      const detail = await createRes.json().catch(() => ({})) as { error?: string };
+      if (detail.error === "byte-budget-exceeded") {
+        throw new Error("This transfer exceeds your remaining daily storage allowance. No file data was uploaded. Use Live (direct) mode, or try again after the allowance resets.");
+      }
       throw new Error(
         "You've started too many stored transfers recently. Wait a bit and try again, or use Live (direct) mode.",
       );

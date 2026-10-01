@@ -68,6 +68,9 @@ export interface ReceivedItem {
 /** High-water mark for DataChannel buffering before we pause sending. */
 const BUFFER_HIGH_WATER = 4 * 1024 * 1024; // 4 MiB
 const BUFFER_LOW_WATER = 1 * 1024 * 1024; // 1 MiB
+// Bound the receiver's decrypt/write queue, not just the sender's network queue.
+const RECEIVE_WINDOW_BYTES = 1024 * 1024;
+const CHECKPOINT_TIMEOUT_MS = 120_000;
 
 type ControlMessage =
   | { kind: "manifest"; totalItems: number; totalBytes: number; files?: ItemInfo[] }
@@ -75,7 +78,9 @@ type ControlMessage =
   | { kind: "file-complete" }
   | { kind: "complete-all" }
   /** Receiver -> sender: open the gates, I'm ready to receive file data. */
-  | { kind: "receiver-ready" }
+  | { kind: "receiver-ready"; flowControl?: boolean }
+  | { kind: "checkpoint"; bytes: number }
+  | { kind: "checkpoint-ack"; bytes: number }
   /** Receiver -> sender: everything received, decrypted, reassembled. */
   | { kind: "ack" }
   /** Receiver -> sender: transfer failed on the receiving side. */
@@ -99,7 +104,7 @@ const ACK_TIMEOUT_MS = 30_000;
 
 /**
  * How long the sender waits for the receiver's `receiver-ready` after the
- * manifest before starting to send anyway. Generous, because the receiver may
+ * manifest before failing. Generous, because the receiver may
  * be waiting on a human to pick a save location for a streamed-to-disk file.
  */
 const READY_TIMEOUT_MS = 5 * 60_000;
@@ -166,6 +171,11 @@ export class FileSender {
   private ackResolve: (() => void) | null = null;
   private ackReject: ((err: Error) => void) | null = null;
   private readyResolve: (() => void) | null = null;
+  private receiverFlowControl = false;
+  private confirmedBytes = 0;
+  private checkpointBytes = 0;
+  private checkpointResolve: (() => void) | null = null;
+  private checkpointReject: ((error: Error) => void) | null = null;
 
   constructor(opts: {
     rtc: WebRtcManager;
@@ -194,7 +204,8 @@ export class FileSender {
       //    plus per-file info so it can choose to stream a big single file to
       //    disk. Then WAIT for the receiver to signal it's ready (it may need
       //    to open a save-file picker first). Older receivers don't send
-      //    `receiver-ready`; a short timeout falls back to starting anyway.
+      //    `receiver-ready`; time out safely rather than flooding a waiting receiver.
+      const ready = this.waitForReceiverReady();
       this.rtc.sendControl({
         kind: "manifest",
         totalItems: this.files.length,
@@ -206,21 +217,24 @@ export class FileSender {
         })),
       } satisfies ControlMessage);
 
-      await this.waitForReceiverReady();
+      await ready;
 
       // 2. Send each item sequentially.
       for (let i = 0; i < this.files.length; i++) {
         if (this.aborted) return;
         await this.sendOne(this.files[i], i);
+        if (this.aborted) return;
       }
 
       // 3. Flush, announce overall completion, wait for the receiver's ack.
       await this.waitForDrain();
+      if (this.aborted) return;
+      const ack = this.waitForAck();
       this.rtc.sendControl({ kind: "complete-all" } satisfies ControlMessage);
-      await this.waitForAck();
+      await ack;
       this.onDone();
     } catch (err) {
-      this.onError(err instanceof Error ? err.message : "send-failed");
+      if (!this.aborted) this.onError(err instanceof Error ? err.message : "send-failed");
     }
   }
 
@@ -248,21 +262,29 @@ export class FileSender {
       const frame = packFrame(iv, chunkIndex, ciphertext);
 
       await this.waitForBuffer();
+      if (this.aborted) return;
       this.rtc.sendBytes(frame);
       data.fill(0); // wipe plaintext chunk promptly
 
       this.sentBytes += data.length;
+      if (this.sentBytes - this.confirmedBytes >= RECEIVE_WINDOW_BYTES) {
+        await this.waitForReceiverCheckpoint();
+      }
       const bps = this.meter.update(this.sentBytes);
       this.emitProgress(index, file.name, bps);
     }
 
+    await this.waitForReceiverCheckpoint();
     await this.waitForDrain();
     this.rtc.sendControl({ kind: "file-complete" } satisfies ControlMessage);
   }
 
   /** Feed an inbound control message (ack/nack) from the receiver. */
   handleControl(msg: ControlMessage): void {
-    if (msg.kind === "receiver-ready") {
+    if (msg.kind === "checkpoint-ack") {
+      if (msg.bytes === this.checkpointBytes) this.checkpointResolve?.();
+    } else if (msg.kind === "receiver-ready") {
+      this.receiverFlowControl = msg.flowControl === true;
       this.readyResolve?.();
       this.readyResolve = null;
     } else if (msg.kind === "ack") {
@@ -270,6 +292,10 @@ export class FileSender {
       this.ackResolve = null;
       this.ackReject = null;
     } else if (msg.kind === "nack") {
+      this.aborted = true;
+      this.readyResolve?.();
+      this.checkpointReject?.(new Error(msg.reason || "Receiver failed"));
+      this.onError(msg.reason || "Receiver failed");
       this.ackReject?.(
         new Error(
           `Receiver could not complete the transfer${msg.reason ? `: ${msg.reason}` : ""}`,
@@ -284,6 +310,7 @@ export class FileSender {
     if (this.aborted) return;
     this.aborted = true;
     this.rtc.sendControl({ kind: "abort", reason } satisfies ControlMessage);
+    this.checkpointReject?.(new Error(reason || "Transfer cancelled"));
     // Unblock any pending ack/ready wait so send() can settle.
     this.readyResolve?.();
     this.readyResolve = null;
@@ -294,18 +321,15 @@ export class FileSender {
 
   /**
    * Wait for the receiver's `receiver-ready` (it may be opening a save-file
-   * picker to stream a large file to disk). Falls back after a timeout so a
-   * receiver that never sends it (older clients) still gets the transfer.
+   * picker to stream a large file to disk). Never send into an unready receiver.
    */
   private waitForReceiverReady(): Promise<void> {
-    return new Promise((resolve) => {
-      this.readyResolve = resolve;
-      setTimeout(() => {
-        if (this.readyResolve) {
-          this.readyResolve = null;
-          resolve();
-        }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.readyResolve = null;
+        reject(new Error("The receiver did not choose a save location in time. Open the invite on the receiving device and try again."));
       }, READY_TIMEOUT_MS);
+      this.readyResolve = () => { clearTimeout(timer); resolve(); };
     });
   }
 
@@ -317,9 +341,34 @@ export class FileSender {
         if (this.ackResolve) {
           this.ackResolve = null;
           this.ackReject = null;
-          resolve(); // bytes delivered reliably; treat missing ack as success
+          reject(new Error("The receiver did not confirm the file was saved. Check the receiving device before retrying."));
         }
       }, ACK_TIMEOUT_MS);
+    });
+  }
+
+  private waitForReceiverCheckpoint(): Promise<void> {
+    if (!this.receiverFlowControl || this.sentBytes === this.confirmedBytes) {
+      return Promise.resolve();
+    }
+    this.checkpointBytes = this.sentBytes;
+    return new Promise((resolve, reject) => {
+      const clear = () => {
+        clearTimeout(timer);
+        this.checkpointResolve = null;
+        this.checkpointReject = null;
+      };
+      const timer = setTimeout(() => {
+        clear();
+        reject(new Error("Receiver stopped responding while saving. Check the receiving device and try again."));
+      }, CHECKPOINT_TIMEOUT_MS);
+      this.checkpointResolve = () => {
+        this.confirmedBytes = this.checkpointBytes;
+        clear();
+        resolve();
+      };
+      this.checkpointReject = (error) => { clear(); reject(error); };
+      this.rtc.sendControl({ kind: "checkpoint", bytes: this.checkpointBytes } satisfies ControlMessage);
     });
   }
 
@@ -452,6 +501,7 @@ export class FileReceiver {
     if (this.failed || this.done) return;
     this.failed = true;
     this.rtc.sendControl({ kind: "nack", reason } satisfies ControlMessage);
+    void this.abortSink();
     this.onError(reason);
   }
 
@@ -488,6 +538,12 @@ export class FileReceiver {
         await this.abortSink();
         this.fail(`Transfer cancelled by sender${msg.reason ? `: ${msg.reason}` : ""}`);
         break;
+      case "checkpoint":
+        if (msg.bytes !== this.bytes) throw new Error("Receiver byte count mismatch");
+        // This control runs in the same serial queue AFTER decryption/disk writes.
+        this.rtc.sendControl({ kind: "checkpoint-ack", bytes: this.bytes } satisfies ControlMessage);
+        break;
+      case "checkpoint-ack":
       case "receiver-ready":
       case "ack":
       case "nack":
@@ -508,7 +564,7 @@ export class FileReceiver {
     } catch {
       this.sink = null; // fall back to in-memory on any sink-open failure
     } finally {
-      this.rtc.sendControl({ kind: "receiver-ready" } satisfies ControlMessage);
+      this.rtc.sendControl({ kind: "receiver-ready", flowControl: true } satisfies ControlMessage);
     }
   }
 

@@ -12,6 +12,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run",
+    "test:large": "SECURESEND_LARGE_TESTS=1 vitest run tests/large-file.integration.test.ts",
     "test:watch": "vitest",
     "check:pwa": "node scripts/check-pwa.mjs"
   },

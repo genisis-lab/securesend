@@ -226,6 +226,16 @@ describe("TransferSession state machine", () => {
     session.destroy();
   });
 
+  it.each(["transferring", "ready-to-save", "complete"])("invite expiry preserves an established %s transfer", async (phase) => {
+    const session = new TransferSession();
+    await session.startReceive("room-xyz-7890ab", "k");
+    (session as any).patch({ phase });
+    FakeWebSocket.last!.open();
+    FakeWebSocket.last!.message({ kind: "room-expired" });
+    expect(session.snapshot.phase).toBe(phase);
+    session.destroy();
+  });
+
   it("receiver arriving FIRST (sender left & rejoins) still progresses, no role stall", async () => {
     // Regression: previously the session tied transfer direction to the
     // server's connection-order slot. If the receiver connected before the

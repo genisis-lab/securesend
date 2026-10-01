@@ -159,12 +159,13 @@ const ICE_RL = { cap: 60, win: 60 * 60 * 1000 };
 
 /**
  * Per-IP byte budget for stored transfers, charged at completion when the real
- * size is known. Defaults to the DO's 2 GiB / 24h; override via env.
+ * size is known. Defaults to the DO's 20 GiB / 24h; override via env.
  */
 async function chargeStoreBytes(
   request: Request,
   env: Env,
   size: number,
+  checkOnly = false,
 ): Promise<boolean> {
   try {
     const cap = parseInt(env.STORE_BYTE_CAP ?? "", 10);
@@ -172,6 +173,7 @@ async function chargeStoreBytes(
     const id = env.RATE_LIMITER.idFromName(`storebytes:${clientKey(request)}`);
     const stub = env.RATE_LIMITER.get(id);
     const params = new URLSearchParams({ add: String(Math.max(0, Math.floor(size))) });
+    if (checkOnly) params.set("check", "1");
     if (Number.isFinite(cap) && cap > 0) params.set("cap", String(cap));
     if (Number.isFinite(win) && win > 0) params.set("win", String(win));
     const res = await stub.fetch("https://rl/bytes?" + params.toString());
@@ -338,8 +340,10 @@ export default {
           );
         }
       }
-      const stored = await handleStore(request, env, cors, (size) =>
-        chargeStoreBytes(request, env, size),
+      const stored = await handleStore(
+        request, env, cors,
+        (size) => chargeStoreBytes(request, env, size),
+        (size) => chargeStoreBytes(request, env, size, true),
       );
       if (stored) return stored;
       // R2 not configured -> feature unavailable.
