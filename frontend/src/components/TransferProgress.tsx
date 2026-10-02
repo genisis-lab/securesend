@@ -9,7 +9,8 @@ interface Props {
 
 /** Visual progress bar with speed, ETA, and byte counters. */
 export function TransferProgressView({ progress, label }: Props) {
-  const fraction = progress?.fraction ?? 0;
+  const finalizing = (progress?.fraction ?? 0) >= 0.995;
+  const fraction = Math.min(progress?.fraction ?? 0, 0.99);
   const multi = !!progress && progress.totalItems > 1;
 
   // Drive the fill width via a CSS custom property using the CSSOM (setProperty)
@@ -23,7 +24,7 @@ export function TransferProgressView({ progress, label }: Props) {
     <div className="progress" aria-live="polite">
       <div className="row u-justify-between">
         <span className="status">
-          <span className="dot dot--live" /> {label}
+          <span className="dot dot--live" /> {finalizing ? "Finishing file… Keep this page open" : label}
         </span>
         <strong>{formatPercent(fraction)}</strong>
       </div>

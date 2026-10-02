@@ -1,3 +1,4 @@
+import { createTemporaryFileSink, MEMORY_RECEIVE_LIMIT } from "./temporary-file-sink";
 /**
  * session.ts — end-to-end session orchestrator (framework-agnostic).
  *
@@ -726,8 +727,8 @@ export class TransferSession {
   /**
    * Called by the FileReceiver when a single-file live transfer arrives and a
    * disk sink *could* be opened. We only OFFER streaming for large files on
-   * capable browsers; otherwise we resolve null immediately (buffer in memory,
-   * which keeps small-file UX — preview, Save to Photos — intact).
+   * picker-capable browsers. Safari writes large receives to temporary device
+   * storage; only small files use memory for previews and sharing.
    *
    * When we do offer it, we surface a `ready-to-save` gesture and return a
    * pending promise; `chooseLiveSaveLocation` / `skipLiveSaveLocation` settle
@@ -738,9 +739,9 @@ export class TransferSession {
     size: number;
     mime: string;
   }): Promise<FileSink | null> {
-    if (!canStreamToDisk() || info.size < LIVE_STREAM_MIN_BYTES) {
-      return Promise.resolve(null); // buffer in memory
-    }
+    if (info.size < MEMORY_RECEIVE_LIMIT) return Promise.resolve(null);
+    if (!canStreamToDisk()) return createTemporaryFileSink(info);
+    if (info.size < LIVE_STREAM_MIN_BYTES) return Promise.resolve(null);
     this.liveSinkInfo = info;
     this.patch({ phase: "ready-to-save", canStreamToDisk: true });
     return new Promise<FileSink | null>((resolve) => {
@@ -797,6 +798,7 @@ export class TransferSession {
     } catch {
       /* ignore */
     }
+    void this.receiver?.dispose();
     this.patch({ phase: "cancelled" });
     this.cleanupAfterTransfer();
   }
@@ -876,6 +878,7 @@ export class TransferSession {
 
   /** Explicit teardown for component unmount / cancel. */
   destroy(): void {
+    void this.receiver?.dispose();
     this.cleanupAfterTransfer();
     try {
       this.rtc?.close();

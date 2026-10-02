@@ -63,6 +63,8 @@ export interface ReceivedItem {
   meta: FileMetadata;
   /** True if this item was streamed straight to disk (no in-memory blob). */
   savedToDisk?: boolean;
+  diskBacked?: boolean;
+  dispose?: () => Promise<void>;
 }
 
 /** High-water mark for DataChannel buffering before we pause sending. */
@@ -554,18 +556,15 @@ export class FileReceiver {
   /**
    * For a single-file transfer with a streaming sink factory, open the sink
    * (may prompt the user for a save location) and then signal `receiver-ready`.
-   * Always signals readiness, even on fallback, so the sender starts.
+   * Signals readiness only after the destination is ready. Storage failures stop the sender.
    */
   private async prepareSinkAndSignalReady(): Promise<void> {
-    try {
-      if (this.openSink && this.totalItems === 1 && this.manifestFiles?.length === 1) {
-        this.sink = await this.openSink(this.manifestFiles[0]);
-      }
-    } catch {
-      this.sink = null; // fall back to in-memory on any sink-open failure
-    } finally {
-      this.rtc.sendControl({ kind: "receiver-ready", flowControl: true } satisfies ControlMessage);
+    if (this.openSink && this.totalItems === 1 && this.manifestFiles?.length === 1) {
+      this.sink = await this.openSink(this.manifestFiles[0]);
+      if (this.failed) { await this.abortSink(); return; }
     }
+    // Storage errors must fail before sending, not fall back to unsafe RAM buffering.
+    this.rtc.sendControl({ kind: "receiver-ready", flowControl: true } satisfies ControlMessage);
   }
 
   private async handleFrame(frame: Uint8Array): Promise<void> {
@@ -625,7 +624,11 @@ export class FileReceiver {
       // Streamed straight to disk: close the file; no in-memory blob.
       await this.sink.close();
       this.savedToDisk = this.sink.kind === "stream";
-      this.completedItems.push({ blob: null, meta: this.meta, savedToDisk: this.savedToDisk });
+      this.completedItems.push({
+        blob: this.sink.getBlob ? await this.sink.getBlob() : null,
+        meta: this.meta, savedToDisk: this.savedToDisk,
+        diskBacked: this.sink.kind === "temporary", dispose: this.sink.dispose,
+      });
       this.sink = null;
       this.streaming = false;
     } else {
@@ -651,6 +654,14 @@ export class FileReceiver {
     this.done = true;
     this.rtc.sendControl({ kind: "ack" } satisfies ControlMessage);
     this.onComplete(this.completedItems);
+  }
+
+  async dispose(): Promise<void> {
+    this.failed = true;
+    await this.abortSink();
+    await Promise.all(this.completedItems.map((item) => item.dispose?.()));
+    this.completedItems = [];
+    this.chunks = [];
   }
 
   /** Best-effort abort of an open streaming sink (cleans up a partial file). */

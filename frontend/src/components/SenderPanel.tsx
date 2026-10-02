@@ -394,11 +394,10 @@ export function SenderPanel({ state, onStart, onCancel, onReset, initialText, in
             <div className="warn">
               <AppIcon icon={Warning} />
               <span>
-                Large transfer ({formatBytes(totalSize)}) — this is not a size limit.
-                For a large single file, use desktop Chrome or Edge on the
-                receiving device and choose a save location to stream to disk.
-                Other browsers and multi-file transfers may need enough memory
-                to hold the received files.
+                Large file selected — Live Send has no 2 GB cap. On iPhone Safari,
+                large single files use temporary device storage. Keep Safari open
+                and tap Save to Files when receiving finishes. The receiving device
+                needs enough free space. Send large videos one at a time.
               </span>
             </div>
           )}

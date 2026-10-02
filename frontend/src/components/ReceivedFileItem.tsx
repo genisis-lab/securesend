@@ -39,7 +39,7 @@ export function ReceivedFileItem({ item, autoSave, onSaved }: Props) {
       </div>
     );
   }
-  return <ReceivedFileBody blob={item.blob} meta={item.meta} autoSave={autoSave} onSaved={onSaved} />;
+  return <ReceivedFileBody blob={item.blob} meta={item.meta} autoSave={autoSave && !item.diskBacked} onSaved={onSaved} />;
 }
 
 /** Body for items that have an in-memory blob (preview / share / download). */
@@ -58,15 +58,16 @@ function ReceivedFileBody({
   const [textBody, setTextBody] = useState<string | null>(null);
 
   const file = useMemo(() => buildFile(blob, meta.name, meta.mime), [blob, meta]);
-  const shareable = canShareFile(file);
+  const large = meta.size >= 64 * 1024 * 1024;
+  const shareable = !large && canShareFile(file);
   const image = isImage(meta.mime);
   const video = isVideo(meta.mime);
   const isText = /^text\//i.test(meta.mime) && meta.size <= TEXT_PREVIEW_LIMIT;
 
   // Object URL for image preview.
   const previewUrl = useMemo(
-    () => (image ? URL.createObjectURL(blob) : null),
-    [image, blob],
+    () => (image && !large ? URL.createObjectURL(blob) : null),
+    [image, large, blob],
   );
   useEffect(() => {
     return () => {
@@ -106,14 +107,14 @@ function ReceivedFileBody({
       onSaved?.();
     } else if (result === "failed" || result === "unsupported") {
       downloadBlob(file, file.name);
-      setSaveHint("Saved to your downloads.");
+      setSaveHint("Download started. Wait for it to finish in Safari’s downloads before tapping Done.");
       onSaved?.();
     }
   };
 
   const handleDownload = () => {
     downloadBlob(blob, meta.name);
-    setSaveHint("Saved to your downloads.");
+    setSaveHint("Download started. Wait for it to finish in Safari’s downloads before tapping Done.");
     onSaved?.();
   };
 
@@ -136,6 +137,9 @@ function ReceivedFileBody({
         </div>
       </div>
 
+      {large && (
+        <p className="card__hint">Your file is ready. Tap Save to Files, wait for the download to finish, then tap Done. You can move the video to Photos from Files.</p>
+      )}
       {image && previewUrl && (
         <img
           className="received__preview"
@@ -164,7 +168,7 @@ function ReceivedFileBody({
         className={`btn btn--block u-mt-10 ${(image || video) && shareable ? "btn--ghost" : ""}`}
         onClick={handleDownload}
       >
-        ⬇ {(image || video) && shareable ? "Save to Files instead" : "Save file"}
+        ⬇ {large ? "Save to Files" : (image || video) && shareable ? "Save to Files instead" : "Save file"}
       </button>
 
       {saveHint && (

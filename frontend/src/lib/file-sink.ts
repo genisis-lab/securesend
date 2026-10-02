@@ -22,11 +22,14 @@
 
 import { downloadBlob } from "./download";
 
-export type SinkKind = "stream" | "memory";
+export type SinkKind = "stream" | "memory" | "temporary";
 
 export interface FileSink {
   /** How this sink persists data ("stream" = direct-to-disk). */
   readonly kind: SinkKind;
+  /** Disk-backed temporary file, available after close; caller offers Save. */
+  getBlob?(): Promise<Blob>;
+  dispose?(): Promise<void>;
   /** Write the next plaintext chunk. */
   write(chunk: Uint8Array): Promise<void>;
   /** Finalize: close the disk stream, or (memory) trigger the download. */

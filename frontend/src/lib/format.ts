@@ -1,12 +1,12 @@
 /** format.ts — small display helpers for sizes, speeds, and time. */
 
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1000) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
+  let value = bytes / 1000;
   let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && i < units.length - 1) {
+    value /= 1000;
     i++;
   }
   return `${value.toFixed(value < 10 ? 2 : 1)} ${units[i]}`;

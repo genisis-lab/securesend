@@ -268,3 +268,42 @@ describe("live completion safety", () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+describe("disk-backed mobile receiving", () => {
+  it("does not signal readiness or buffer a large file when storage setup fails", async () => {
+    const { bKey } = await sharedKeys();
+    const controls: any[] = [];
+    const errors: string[] = [];
+    const receiver = new FileReceiver({ key: bKey, rtc: { sendControl: (m: any) => controls.push(m) } as any,
+      onProgress: () => {}, onComplete: () => {}, onError: e => errors.push(e),
+      openSink: async () => { throw new Error("Not enough storage"); },
+    });
+    receiver.handleMessage(JSON.stringify({ kind: "manifest", totalItems: 1, totalBytes: 2_050_000_000,
+      files: [{ name: "video.mp4", size: 2_050_000_000, mime: "video/mp4" }] }));
+    await vi.waitFor(() => expect(errors).toEqual(["Not enough storage"]));
+    expect(controls.map(m => m.kind)).toEqual(["nack"]);
+  });
+  it("retains a disk-backed file for explicit saving and cleans it only on Done", async () => {
+    const { aKey, bKey } = await sharedKeys();
+    const channel = new MockChannel();
+    const dispose = vi.fn(async () => {});
+    const diskFile = new File(["test"], "video.mp4");
+    let items: ReceivedItem[] = [];
+    const errors: string[] = [];
+    const receiver = new FileReceiver({ key: bKey, rtc: channel.makeReceiverRtc(), onProgress: () => {},
+      onComplete: result => { items = result; }, onError: e => errors.push(e),
+      openSink: async () => ({ kind: "temporary", write: async () => {}, close: async () => {}, abort: async () => {}, getBlob: async () => diskFile, dispose }),
+    });
+    channel.receiverInbound = data => receiver.handleMessage(data);
+    const sender = new FileSender({ key: aKey, files: [diskFile], rtc: channel.makeSenderRtc(), onProgress: () => {}, onDone: () => {}, onError: e => errors.push(e) });
+    channel.senderInbound = data => sender.handleControl(JSON.parse(data as string));
+    await sender.send();
+    expect(errors).toEqual([]);
+    expect(items[0].blob).toBe(diskFile);
+    expect(items[0].diskBacked).toBe(true);
+    expect(items[0].savedToDisk).toBe(false);
+    expect(dispose).not.toHaveBeenCalled();
+    await receiver.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});

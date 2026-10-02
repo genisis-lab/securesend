@@ -429,7 +429,9 @@ All frontend config is via Vite env vars. **These are not secrets.**
 - Requires a modern browser with **WebRTC** and **Web Crypto**.
 - **Live mode** requires both peers online simultaneously. Use **Send for later** for asynchronous delivery.
 - **Streaming-to-disk** is available for single-file transfers on browsers with the File System Access API, mainly desktop Chromium.
-- On Safari/iOS/Firefox and for multi-file transfers, received data is generally reassembled in memory before saving, so very large transfers are bounded by device memory.
+- Large single-file **live** receives on Safari/iOS/Firefox use temporary origin-private device storage via a dedicated worker. The final Save to Files action exports a disk-backed file without assembling gigabytes in memory. Temporary plaintext is removed on Done/cancel; abandoned copies older than 24 hours are removed on the next large receive. Keep the tab open and allow space for both the temporary file and exported download.
+- Multi-file and stored-download memory fallbacks are still device-memory limited. Send large live videos one at a time.
+- File sizes use decimal KB/MB/GB to match phone file information.
 - **Download all ZIP** also builds the ZIP in memory from already-decrypted files; use individual streaming saves for very large single files.
 - Some symmetric-NAT networks require TURN.
 - Stored transfers remain available until expiry unless burn-after-download is enabled and the recipient confirms a save.

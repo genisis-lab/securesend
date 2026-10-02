@@ -95,7 +95,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.click();
   document.body.removeChild(a);
   // Revoke after a delay so the download has time to start.
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /** A single received file to include in a multi-file ZIP download. */
