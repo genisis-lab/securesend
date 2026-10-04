@@ -11,7 +11,8 @@
     "tail": "wrangler tail",
     "typegen": "wrangler types worker-configuration.d.ts --env-interface CloudflareBindings",
     "typecheck": "wrangler types worker-configuration.d.ts --env-interface CloudflareBindings --check && tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc --noEmit && wrangler deploy --dry-run"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

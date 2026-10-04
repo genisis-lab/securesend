@@ -71,3 +71,6 @@ STORE_BYTE_CAP = "21474836480"       # bytes
 
 [observability]
 enabled = true
+
+[triggers]
+crons = ["*/15 * * * *"]

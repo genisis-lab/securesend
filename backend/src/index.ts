@@ -17,7 +17,7 @@
 import { SignalingRoom } from "./room";
 import { RateLimiter } from "./rate-limiter";
 import type { RateLimitResult } from "./rate-limiter";
-import { handleStore } from "./storage";
+import { handleStore, sweepExpiredStores } from "./storage";
 
 export { SignalingRoom, RateLimiter };
 
@@ -29,6 +29,7 @@ export interface Env
     | "ROOM_TTL_SECONDS"
     | "RECONNECT_GRACE_SECONDS"
     | "STORE_TTL_SECONDS"
+    | "STORE_BYTE_CAP"
   > {
   /** R2 bucket for optional store-and-forward (encrypted blobs only). */
   BLOBS?: R2Bucket;
@@ -253,6 +254,9 @@ async function buildIceServers(env: Env): Promise<RTCIceServerLike[]> {
 }
 
 export default {
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    if (env.BLOBS) await sweepExpiredStores(env.BLOBS);
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
