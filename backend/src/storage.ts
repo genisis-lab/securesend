@@ -536,3 +536,45 @@ function json(obj: unknown, status: number, cors: HeadersInit): Response {
 function text(body: string, status: number, cors: HeadersInit): Response {
   return new Response(body, { status, headers: cors });
 }
+
+
+/** Bounded scheduled sweep; keep a cursor so large buckets cannot starve later keys. */
+export async function sweepExpiredStores(bucket: R2Bucket, now = Date.now()): Promise<void> {
+  const cursorKey = "maintenance/expiration-cursor";
+  const saved = await bucket.get(cursorKey);
+  let cursor = saved ? await saved.text() : undefined;
+  let deleted = 0;
+  let failed = 0;
+  for (let page = 0; page < 4; page++) {
+    const listing = await bucket.list({ limit: 100, cursor: cursor || undefined });
+    for (const object of listing.objects) {
+      if (!object.key.endsWith(META_SUFFIX)) continue;
+      const id = object.key.slice(0, -META_SUFFIX.length);
+      if (!isValidId(id)) continue;
+      try {
+        const meta = await readMeta(bucket, id);
+        if (!meta || !Number.isFinite(meta.expiresAt) || meta.expiresAt > now) continue;
+        if (!meta.uploaded) {
+          try {
+            await bucket.resumeMultipartUpload(BODY_PREFIX + id, meta.uploadId).abort();
+          } catch (error) {
+            // Completed/previously aborted uploads have no multipart state left.
+            // Other failures must retain metadata so the next sweep can retry.
+            if (!(error instanceof Error) || !/NoSuchUpload|does not exist/i.test(error.message)) throw error;
+          }
+        }
+        await bucket.delete(BODY_PREFIX + id);
+        await bucket.delete(object.key);
+        deleted++;
+      } catch {
+        failed++;
+      }
+    }
+    cursor = listing.truncated ? listing.cursor : undefined;
+    if (!cursor) break;
+  }
+  if (cursor) await bucket.put(cursorKey, cursor);
+  else await bucket.delete(cursorKey);
+  console.log(JSON.stringify({ operation: "store-expiration-sweep", deleted, failed, more: Boolean(cursor) }));
+  if (failed) throw new Error(`Store expiration sweep failed for ${failed} entries; retained for retry`);
+}
